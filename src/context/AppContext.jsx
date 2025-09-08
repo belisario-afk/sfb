@@ -29,7 +29,6 @@ function parseQueryParams() {
   return out;
 }
 
-// Simple demo track placeholders (URIs included so FULL playback can attempt)
 function buildDemoTracks() {
   return [
     {
@@ -52,7 +51,6 @@ function buildDemoTracks() {
 }
 
 export function AppProvider({ children }) {
-  // Spotify Client ID (user-saved overrides env)
   const [spotifyClientId, setSpotifyClientIdState] = useState(
     localStorage.getItem('customSpotifyClientId') ||
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
@@ -90,6 +88,12 @@ export function AppProvider({ children }) {
 
   const chat = useChat({ mode: chatMode, relayUrl });
 
+  // Expose chat for debugging
+  if (typeof window !== 'undefined') {
+    window.__SFB_DEBUG = window.__SFB_DEBUG || {};
+    window.__SFB_DEBUG.chat = chat;
+  }
+
   const normalizeRelay = useCallback((val) => {
     let v = (val || '').trim();
     if (v && !v.endsWith('/ws')) {
@@ -121,7 +125,6 @@ export function AppProvider({ children }) {
     startSpotifyAuth(spotifyClientId);
   }, [spotifyClientId]);
 
-  // Handle PKCE code exchange on load
   useEffect(() => {
     const { code, error } = parseQueryParams();
     if (error) {
@@ -146,7 +149,6 @@ export function AppProvider({ children }) {
     }
   }, [spotifyClientId]);
 
-  // Refresh token loop
   useEffect(() => {
     let cancelled = false;
     let t;
@@ -170,24 +172,63 @@ export function AppProvider({ children }) {
     };
   }, [spotifyClientId]);
 
-  // Chat commands
+  // Helper to attach chat listener robustly
+  function attachChatListener(chatObj, handler) {
+    if (!chatObj || typeof handler !== 'function') return () => {};
+    // Preferred: subscribe / unsubscribe
+    if (typeof chatObj.subscribe === 'function') {
+      chatObj.subscribe(handler);
+      return () => {
+        if (typeof chatObj.unsubscribe === 'function') {
+          chatObj.unsubscribe(handler);
+        }
+      };
+    }
+    // EventEmitter style
+    if (typeof chatObj.on === 'function') {
+      chatObj.on('message', handler);
+      return () => {
+        if (typeof chatObj.off === 'function') {
+          chatObj.off('message', handler);
+        } else if (typeof chatObj.removeListener === 'function') {
+          chatObj.removeListener('message', handler);
+        }
+      };
+    }
+    // DOM-like addEventListener
+    if (typeof chatObj.addEventListener === 'function') {
+      chatObj.addEventListener('message', handler);
+      return () => {
+        if (typeof chatObj.removeEventListener === 'function') {
+          chatObj.removeEventListener('message', handler);
+        }
+      };
+    }
+    console.warn('[Chat] No recognized listener API (subscribe/on/addEventListener). Listener skipped.');
+    return () => {};
+  }
+
   useEffect(() => {
     if (!chat) return;
     const handler = (msg) => {
-      const text = msg?.text || '';
-      const lower = text.toLowerCase().trim();
-      if (lower.startsWith('!vote ')) {
-        const choice = lower.split(/\s+/)[1];
-        if (choice === 'a' || choice === 'b') {
-          vote(choice, msg.user || 'anon');
+      try {
+        const text = (msg?.text || '').toString();
+        const lower = text.toLowerCase().trim();
+        if (lower.startsWith('!vote ')) {
+            const choice = lower.split(/\s+/)[1];
+          if (choice === 'a' || choice === 'b') {
+            vote(choice, msg.user || msg.username || 'anon');
+          }
+        } else if (lower.startsWith('!battle ')) {
+          const query = text.slice('!battle '.length).trim();
+          if (query) addTopTrackByQuery(query);
         }
-      } else if (lower.startsWith('!battle ')) {
-        const query = text.slice('!battle '.length).trim();
-        if (query) addTopTrackByQuery(query);
+      } catch (e) {
+        console.warn('[Chat Handler] Error processing message', e);
       }
     };
-    chat.subscribe(handler);
-    return () => chat.unsubscribe(handler);
+    const detach = attachChatListener(chat, handler);
+    return detach;
   }, [chat, vote, addTrack]);
 
   const addTopTrackByQuery = useCallback(async (query) => {
@@ -249,7 +290,7 @@ export function AppProvider({ children }) {
     queue,
     battle,
     tryStartBattle,
-    nextBattle: tryStartBattle, // alias for existing UI
+    nextBattle: tryStartBattle,
     vote,
     forceNextStage,
     togglePause,
@@ -264,7 +305,7 @@ export function AppProvider({ children }) {
     modalOpen,
     setModalOpen,
 
-    // Spotify Player (FULL mode)
+    // Player
     spotifyPlayer
   };
 
