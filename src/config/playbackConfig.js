@@ -1,4 +1,4 @@
-export const PLAYBACK_MODE = import.meta.env.VITE_PLAYBACK_MODE || 'PREVIEW'; 
+export const PLAYBACK_MODE = import.meta.env.VITE_PLAYBACK_MODE || 'FULL'; 
 // 'FULL' uses Spotify Web Playback SDK; 'PREVIEW' uses 30s preview URLs if available.
 
 export const SEGMENT_DURATIONS = {
