@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 import { searchTracks } from '../lib/spotify.js';
 import { playPreview, unlockAudioSystem } from '../lib/audioManager.js';
+import { ALLOW_NO_PREVIEW } from '../config/battleConfig.js';
 
 export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
   const { authState } = useAppContext();
@@ -32,9 +33,14 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
           <h3 style={{margin:0}}>Search Spotify Tracks</h3>
           <button className="btn-outline" onClick={onClose}>Close</button>
         </div>
+        {!ALLOW_NO_PREVIEW && (
+          <div style={{marginTop:'0.4rem', fontSize:'0.55rem', color:'#f88'}}>
+            Tracks without previews are currently blocked (ALLOW_NO_PREVIEW=false).
+          </div>
+        )}
         <input
           className="input"
-            style={{marginTop:'0.5rem'}}
+          style={{marginTop:'0.5rem'}}
           placeholder="Type to search..."
           value={query}
           onChange={(e) => doSearch(e.target.value)}
@@ -43,6 +49,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
         <div style={{maxHeight:300, overflowY:'auto', marginTop:'0.75rem'}}>
           {results.map(r => {
             const hasPreview = !!r.preview_url;
+            const blocked = !hasPreview && !ALLOW_NO_PREVIEW;
             return (
               <div
                 key={r.id}
@@ -51,7 +58,8 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
                   alignItems:'center',
                   gap:'0.5rem',
                   padding:'0.4rem 0.2rem',
-                  borderBottom:'1px solid rgba(255,255,255,0.05)'
+                  borderBottom:'1px solid rgba(255,255,255,0.05)',
+                  opacity: blocked ? 0.4 : 1
                 }}
               >
                 <img
@@ -94,6 +102,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
                     <button
                       className="btn"
                       style={{fontSize:'0.55rem'}}
+                      disabled={blocked}
                       onClick={() => onSelect(r)}
                     >Add</button>
                   </div>
