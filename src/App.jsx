@@ -4,6 +4,7 @@ import SettingsPanel from './components/SettingsPanel.jsx';
 import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
+import WinnerOverlay from './components/WinnerOverlay.jsx';
 import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
 import ParticleField from './components/FX/ParticleField.jsx';
@@ -15,7 +16,7 @@ export default function App() {
   const {
     queue,
     addTrack,
-    tryStartBattle,       // use this directly
+    tryStartBattle,
     forceNextStage,
     togglePause,
     battle,
@@ -65,7 +66,8 @@ export default function App() {
   const stageLabel = useMemo(() => {
     if (!battle) return 'Ready';
     const s = battle.stage;
-    if (s === 'finished') return 'Winner';
+    if (s === 'finished') return 'Finished';
+    if (s === 'winner') return 'Winner';
     if (s?.startsWith?.('vote')) return 'Voting';
     if (s?.includes?.('r1')) return 'Round 1';
     if (s?.includes?.('r2')) return 'Round 2';
@@ -75,14 +77,10 @@ export default function App() {
   // Try to read the current left/right tracks to show "Requested by"
   function getBattleTracks(b) {
     if (!b) return { left: null, right: null };
-    // Common shapes to probe
     const candidates = [
-      // direct
       { left: b.a, right: b.b },
-      // nested track
       { left: b.a?.track, right: b.b?.track },
       { left: b.left?.track, right: b.right?.track },
-      // alt keys
       { left: b.left, right: b.right },
       { left: b.trackA, right: b.trackB }
     ];
@@ -105,6 +103,7 @@ export default function App() {
         <ThreeBackdrop
           mode={
             !battle ? 'idle'
+            : battle.stage === 'winner' ? 'finale'
             : battle.stage === 'finished' ? 'finale'
             : battle.stage?.startsWith?.('vote') ? 'vote'
             : 'play'
@@ -140,9 +139,10 @@ export default function App() {
           <div className="arena-wrapper" style={{ position: 'relative' }}>
             <NeoArena />
             <VoteOverlay />
+            <WinnerOverlay />
 
             {/* Requested-by badges overlay */}
-            {battle && (requesterLeft || requesterRight) && (
+            {battle && (requesterLeft || requesterRight) && (battle.stage?.startsWith?.('r') || battle.stage === 'winner') && (
               <div style={{
                 position: 'absolute',
                 top: '12px',
@@ -200,7 +200,7 @@ export default function App() {
             <div className="battle-info glass-soft">
               <span className="info-pill"><strong>Stage:</strong> {battle.stage}</span>
               {battle.voteWindow && <span className="info-pill">Vote Window: {battle.voteWindow}/2</span>}
-              {battle.winner && (
+              {battle.winner && (battle.stage === 'winner' || battle.stage === 'finished') && (
                 <span className="info-pill tag-win">
                   Winner: {battle.winner?.toUpperCase()}
                 </span>

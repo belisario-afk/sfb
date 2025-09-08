@@ -7,7 +7,8 @@ import {
   TRANSITION_BUFFER,
   STAGE_GAP_MS,
   BATTLE_AUTOSTART_NEXT_DELAY,
-  VOTING_RULE
+  VOTING_RULE,
+  WINNER_ANIMATION_MS
 } from '../config/playbackConfig.js';
 import { playPreview, stopAllPreviews } from '../lib/audioManager.js';
 import { playTick } from '../lib/voteTickAudio.js';
@@ -24,7 +25,7 @@ export default function useBattleEngine(spotifyClientId) {
 
   const [voteRemaining, setVoteRemaining] = useState(0);
 
-  const timersRef = useRef({ main: null, raf: null, voteInterval: null });
+  const timersRef = useRef({ main: null, raf: null, voteInterval: null, winnerTimer: null, nextTimer: null });
   const pendingStageRef = useRef(null);
   const playbackRetryRef = useRef({ key: null }); // track -> single retry guard
 
@@ -163,12 +164,19 @@ export default function useBattleEngine(spotifyClientId) {
         case 'vote1':     next = 'r2A_play'; break;
         case 'r2A_play':  next = 'r2B_play'; break;
         case 'r2B_play':  next = 'vote2'; break;
-        case 'vote2':     next = 'finished'; break;
+        case 'vote2':     next = 'winner'; break; // changed: show winner stage before finishing
+        case 'winner':    next = 'finished'; break;
         default:          next = 'finished';
       }
       scheduleStage(next, b);
       return b;
     });
+  }
+
+  function recomputeTotals(battle) {
+    const aCount = (battle.votesWindows?.[0]?.a?.size || 0) + (battle.votesWindows?.[1]?.a?.size || 0);
+    const bCount = (battle.votesWindows?.[0]?.b?.size || 0) + (battle.votesWindows?.[1]?.b?.size || 0);
+    return { a: aCount, b: bCount };
   }
 
   function scheduleStage(nextStage, battleArg, _isRestart = false) {
@@ -179,15 +187,51 @@ export default function useBattleEngine(spotifyClientId) {
       let updated = { ...b, stage: nextStage, stageStartedAt: Date.now() };
 
       if (nextStage === 'finished') {
-        updated.winner = computeWinner(updated);
+        // finished: cleanup and optionally schedule next battle
+        // Winner has already been computed in 'winner' stage
         console.log(LOG, 'Battle finished', updated.voteTotals, 'Winner:', updated.winner);
         setVoteRemaining(0);
-        clearAllTimers();
+        // don't clear winnerTimer here; it is not used in finished
+        // Auto-start next battle after a delay
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
-          timersRef.current.main = setTimeout(() => {
+          timersRef.current.nextTimer = setTimeout(() => {
             tryStartBattle();
           }, BATTLE_AUTOSTART_NEXT_DELAY);
         }
+        setCurrentBattle(updated);
+        return updated;
+      }
+
+      if (nextStage === 'winner') {
+        // Pause any playback and compute final totals and winner
+        if (PLAYBACK_MODE === 'FULL') {
+          try { spotifyPlayer?.pause?.(); } catch {}
+        } else {
+          stopAllPreviews();
+        }
+        const finalTotals = recomputeTotals(b);
+        const finalWinner = computeWinner({ ...b, voteTotals: finalTotals });
+
+        updated = {
+          ...b,
+          stage: 'winner',
+          stageStartedAt: Date.now(),
+          voteTotals: finalTotals,
+          winner: finalWinner,
+          voteWindow: null,
+          voteEndsAt: null
+        };
+        setVoteRemaining(0);
+
+        // Show winner animation, then transition to finished
+        if (timersRef.current.winnerTimer) {
+          clearTimeout(timersRef.current.winnerTimer);
+          timersRef.current.winnerTimer = null;
+        }
+        timersRef.current.winnerTimer = setTimeout(() => {
+          advanceStage(updated); // goes to 'finished'
+        }, WINNER_ANIMATION_MS);
+
         setCurrentBattle(updated);
         return updated;
       }
@@ -358,8 +402,12 @@ export default function useBattleEngine(spotifyClientId) {
   function clearPlaybackTimers() {
     if (timersRef.current.main) clearTimeout(timersRef.current.main);
     if (timersRef.current.raf) cancelAnimationFrame(timersRef.current.raf);
+    if (timersRef.current.winnerTimer) clearTimeout(timersRef.current.winnerTimer);
+    if (timersRef.current.nextTimer) clearTimeout(timersRef.current.nextTimer);
     timersRef.current.main = null;
     timersRef.current.raf = null;
+    timersRef.current.winnerTimer = null;
+    timersRef.current.nextTimer = null;
   }
 
   function clearAllTimers() {
