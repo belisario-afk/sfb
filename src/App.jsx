@@ -4,8 +4,134 @@ import SettingsPanel from './components/SettingsPanel.jsx';
 import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 
-function BattleView() {
-  const { battle } = useAppContext();
+export default function App() {
+  const ctx = useAppContext();
+
+  // Hard guard: context missing
+  if (!ctx) {
+    return (
+      <div style={{
+        padding:'2rem',
+        fontFamily:'system-ui, sans-serif',
+        background:'#0c0f14',
+        minHeight:'100vh',
+        color:'#fff'
+      }}>
+        <h2 style={{marginTop:0}}>Context Error</h2>
+        <p style={{maxWidth:480, lineHeight:1.4}}>
+          App is not wrapped in &lt;AppProvider&gt;. Make sure your entry point
+          (main.jsx / index.jsx) renders: 
+          <code style={{background:'#222',padding:'2px 4px',borderRadius:4,marginLeft:4}}>
+            &lt;AppProvider&gt;&lt;App /&gt;&lt;/AppProvider&gt;
+          </code>
+        </p>
+      </div>
+    );
+  }
+
+  const {
+    queue,
+    addTrack,
+    nextBattle,
+    forceNextStage,
+    togglePause,
+    battle,
+    modalOpen,
+    setModalOpen,
+    authState,
+    hasScopes,
+    beginSpotifyAuth,
+    spotifyPlayer
+  } = ctx;
+
+  const startBattle = useCallback(() => {
+    nextBattle();
+  }, [nextBattle]);
+
+  const openSearch = () => setModalOpen(true);
+  const closeSearch = () => setModalOpen(false);
+
+  return (
+    <div style={{
+      display:'grid',
+      gridTemplateColumns:'300px 1fr 340px',
+      gap:'1rem',
+      height:'100vh',
+      padding:'1rem',
+      background:'#0c0f14',
+      color:'#fafafa',
+      boxSizing:'border-box',
+      fontFamily:'system-ui, sans-serif'
+    }}>
+      <div style={{display:'flex', flexDirection:'column', minHeight:0}}>
+        <SettingsPanel />
+      </div>
+
+      <div style={{display:'flex', flexDirection:'column', gap:'1rem', minHeight:0}}>
+        <div style={{display:'flex', gap:'0.5rem', flexWrap:'wrap'}}>
+          <button className="btn-outline" onClick={startBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
+          <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
+          <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
+          <button className="btn-outline" onClick={openSearch}>Search Tracks</button>
+          {!authState && (
+            <button className="btn-outline" onClick={beginSpotifyAuth}>Login Spotify</button>
+          )}
+          {authState && !hasScopes && (
+            <button className="btn-outline" onClick={beginSpotifyAuth}>Re-Auth Scopes</button>
+          )}
+        </div>
+
+        <BattleView battle={battle} />
+        <QueueView queue={queue} />
+
+        <div style={{fontSize:'0.5rem', opacity:0.55}}>
+          Player: {spotifyPlayer?.ready ? 'Ready' : 'Not Ready'}
+          {spotifyPlayer?.deviceId && ` (${spotifyPlayer.deviceId.slice(0,8)}…)`}
+          {spotifyPlayer?.error && <span style={{color:'#ff6b6b'}}> Error: {spotifyPlayer.error}</span>}
+          {' '}Scopes: {hasScopes ? 'OK' : 'Missing'}
+        </div>
+      </div>
+
+      <div style={{display:'flex', flexDirection:'column', minHeight:0, gap:'1rem'}}>
+        <div style={{
+          border:'1px solid rgba(255,255,255,0.12)',
+          borderRadius:10,
+          padding:'0.6rem',
+          flex:1,
+          display:'flex',
+          flexDirection:'column',
+          minHeight:0
+        }}>
+          <div style={{fontSize:'0.65rem', fontWeight:600, marginBottom:'0.35rem'}}>Chat</div>
+          <div style={{flex:1, overflow:'hidden'}}>
+            <div style={{height:'100%', overflowY:'auto', paddingRight:4}}>
+              <ChatTicker limit={60} />
+            </div>
+          </div>
+          <div style={{fontSize:'0.5rem', opacity:0.5, marginTop:'0.35rem'}}>
+            Commands: !battle &lt;query&gt; | !vote A/B
+          </div>
+        </div>
+      </div>
+
+      {modalOpen && (
+        <SpotifyTrackSearchModal
+          onClose={closeSearch}
+          onSelect={(track) => {
+            if (typeof addTrack === 'function') {
+              try { addTrack(track); } catch (e) { console.warn('[App] addTrack failed:', e); }
+            } else {
+              console.warn('[App] addTrack not available.');
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* --- Subcomponents kept inside file for brevity --- */
+function BattleView({ battle }) {
   if (!battle) {
     return (
       <div style={{
@@ -65,9 +191,7 @@ function TrackCard({ track, label, votes, highlight }) {
           <span>Side {label}</span>
           <span>Votes {votes}</span>
         </div>
-        <div style={{fontSize:'0.7rem', fontWeight:600, lineHeight:'0.85rem'}}>
-          {track.name}
-        </div>
+        <div style={{fontSize:'0.7rem', fontWeight:600, lineHeight:'0.85rem'}}>{track.name}</div>
         <div style={{fontSize:'0.5rem', opacity:0.6, whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
           {(track.artists||[]).map(a=>a.name).join(', ')}
         </div>
@@ -78,12 +202,12 @@ function TrackCard({ track, label, votes, highlight }) {
 
 function ProgressHint({ stage }) {
   const map = {
-    intro: 'Battle about to begin…',
-    round1A: 'Side A first segment',
-    round1B: 'Side B first segment',
-    round2A: 'Leader second segment',
-    round2B: 'Challenger second segment',
-    finished: 'Battle finished'
+    intro:'Battle about to begin…',
+    round1A:'Side A first segment',
+    round1B:'Side B first segment',
+    round2A:'Leader second segment',
+    round2B:'Challenger second segment',
+    finished:'Battle finished'
   };
   const hint = map[stage];
   if (!hint) return null;
@@ -141,112 +265,6 @@ function QueueView({ queue }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-export default function App() {
-  const {
-    queue,
-    addTrack,
-    nextBattle,
-    forceNextStage,
-    togglePause,
-    battle,
-    modalOpen,
-    setModalOpen,
-    authState,
-    hasScopes,
-    beginSpotifyAuth,
-    spotifyPlayer
-  } = useAppContext();
-
-  const startBattle = useCallback(() => {
-    nextBattle();
-  }, [nextBattle]);
-
-  const openSearch = () => setModalOpen(true);
-  const closeSearch = () => setModalOpen(false);
-
-  return (
-    <div style={{
-      display:'grid',
-      gridTemplateColumns:'300px 1fr 340px',
-      gap:'1rem',
-      height:'100vh',
-      padding:'1rem',
-      background:'#0c0f14',
-      color:'#fafafa',
-      boxSizing:'border-box',
-      fontFamily:'system-ui, sans-serif'
-    }}>
-      <div style={{display:'flex', flexDirection:'column', minHeight:0}}>
-        <SettingsPanel />
-      </div>
-
-      <div style={{display:'flex', flexDirection:'column', gap:'1rem', minHeight:0}}>
-        <div style={{display:'flex', gap:'0.5rem', flexWrap:'wrap'}}>
-          <button className="btn-outline" onClick={startBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
-          <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
-          <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
-          <button className="btn-outline" onClick={openSearch}>Search Tracks</button>
-          {!authState && (
-            <button className="btn-outline" onClick={beginSpotifyAuth}>Login Spotify</button>
-          )}
-          {authState && !hasScopes && (
-            <button className="btn-outline" onClick={beginSpotifyAuth}>Re-Auth Scopes</button>
-          )}
-        </div>
-
-        <BattleView />
-        <QueueView queue={queue} />
-
-        <div style={{fontSize:'0.5rem', opacity:0.55}}>
-          Player: {spotifyPlayer?.ready ? 'Ready' : 'Not Ready'}
-          {spotifyPlayer?.deviceId && ` (${spotifyPlayer.deviceId.slice(0,8)}…)`}
-          {spotifyPlayer?.error && <span style={{color:'#ff6b6b'}}> Error: {spotifyPlayer.error}</span>}
-          {' '}Scopes: {hasScopes ? 'OK' : 'Missing'}
-        </div>
-      </div>
-
-      <div style={{display:'flex', flexDirection:'column', minHeight:0, gap:'1rem'}}>
-        <div style={{
-          border:'1px solid rgba(255,255,255,0.12)',
-          borderRadius:10,
-            padding:'0.6rem',
-          flex:1,
-          display:'flex',
-          flexDirection:'column',
-          minHeight:0
-        }}>
-          <div style={{fontSize:'0.65rem', fontWeight:600, marginBottom:'0.35rem'}}>Chat</div>
-          <div style={{flex:1, overflow:'hidden'}}>
-            <div style={{height:'100%', overflowY:'auto', paddingRight:4}}>
-              <ChatTicker limit={60} />
-            </div>
-          </div>
-          <div style={{fontSize:'0.5rem', opacity:0.5, marginTop:'0.35rem'}}>
-            Commands: !battle &lt;query&gt; | !vote A/B
-          </div>
-        </div>
-      </div>
-
-      {modalOpen && (
-        <SpotifyTrackSearchModal
-          onClose={closeSearch}
-          onSelect={(track) => {
-            if (typeof addTrack === 'function') {
-              try {
-                addTrack(track);
-              } catch (e) {
-                console.warn('[App] addTrack failed:', e);
-              }
-            } else {
-              console.warn('[App] addTrack is not available on context.');
-            }
-          }}
-        />
-      )}
     </div>
   );
 }
