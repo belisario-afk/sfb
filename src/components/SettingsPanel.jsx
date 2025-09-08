@@ -131,14 +131,20 @@ export default function SettingsPanel() {
             <div style={{marginTop:'0.5rem'}}>
               <div style={{fontSize:'0.55rem', opacity:0.8, marginBottom:'0.25rem'}}>Granted Scopes:</div>
               <div style={{display:'flex', flexWrap:'wrap', gap:'4px'}}>
-                {grantedScopes.map(s => (
-                  <span key={s} style={{
-                    background: hasRequiredScopes ? '#203a2f' : '#27313a',
-                    fontSize:'0.55rem',
-                    padding:'2px 6px',
-                    borderRadius:4
-                  }}>{s}</span>
-                ))}
+                {grantedScopes.map(s => {
+                  const ok = requiredScopes.includes(s);
+                  return (
+                    <span
+                      key={s}
+                      style={{
+                        background: ok ? '#203a2f' : '#27313a',
+                        fontSize:'0.55rem',
+                        padding:'2px 6px',
+                        borderRadius:4
+                      }}
+                    >{s}</span>
+                  );
+                })}
               </div>
               {missingScopes.length > 0 && (
                 <div style={{marginTop:'0.4rem'}}>
@@ -270,7 +276,7 @@ export default function SettingsPanel() {
         <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem'}}>
           <button className="btn-outline" onClick={addDemoPair}>Add Demo Tracks</button>
           <button className="btn-outline" onClick={nextBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
-            <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
+          <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
           <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
         </div>
         {battle && (
