@@ -1,0 +1,241 @@
+:root {
+  --bg: #0d0d14;
+  --panel: #1c1f2b;
+  --panel-alt: #232736;
+  --accent: #e91e63;
+  --accent-glow: 0 0 8px rgba(233,30,99,0.6);
+  --accent2: #673ab7;
+  --text: #f5f7fa;
+  --danger: #ff1744;
+  --success: #00e676;
+  --warn: #ffb300;
+  --radius: 10px;
+  --transition: 0.25s cubic-bezier(.4,.0,.2,1);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+  background: radial-gradient(circle at 30% 20%, #141824, #0b0d13);
+  color: var(--text);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #141824;
+}
+::-webkit-scrollbar-thumb {
+  background: #2e3345;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3b4258;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.panel {
+  background: linear-gradient(145deg, var(--panel), var(--panel-alt));
+  border: 1px solid #2d3243;
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 18px -6px rgba(0,0,0,0.6);
+}
+
+.flex {
+  display: flex;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.gap-sm { gap: 0.5rem; }
+.gap { gap: 1rem; }
+.gap-lg { gap: 1.5rem; }
+
+h1,h2,h3,h4 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  background: #2a3042;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #c7d2e7;
+}
+
+.btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+  border: none;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: var(--accent-glow);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px -6px rgba(233,30,99,0.65);
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid #394155;
+  color: #d2d9e7;
+  box-shadow: none;
+}
+.btn-outline:hover {
+  background: #262c3b;
+}
+.input, input[type=text] {
+  background: #1f2430;
+  border: 1px solid #30384a;
+  color: #f0f3f8;
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  width: 100%;
+  font-size: 0.9rem;
+}
+.input:focus {
+  outline: 2px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.grid {
+  display: grid;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,17,26,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+}
+
+.modal {
+  width: min(600px, 94vw);
+  background: #141924;
+  border: 1px solid #2b3141;
+  padding: 1.25rem 1.5rem 1.75rem;
+  border-radius: 14px;
+  box-shadow: 0 12px 36px -10px rgba(0,0,0,0.65);
+}
+
+.album-cover {
+  aspect-ratio: 1/1;
+  width: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 2px solid #2a3042;
+}
+
+.health-bar {
+  position: relative;
+  background: #202635;
+  border-radius: 6px;
+  overflow: hidden;
+  height: 14px;
+  box-shadow: inset 0 0 4px #000;
+}
+.health-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  width: 0%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  font-size: 0.65rem;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.chat-ticker {
+  font-size: 0.75rem;
+  line-height: 1.15rem;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: ui-monospace, Menlo, Monaco, monospace;
+}
+
+.queue-item {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.45rem 0.4rem;
+  border-radius: 8px;
+  background: #1c2230;
+  border: 1px solid #2c3445;
+  align-items: center;
+}
+.queue-item .meta {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.68rem;
+  letter-spacing: 0.4px;
+  opacity: 0.9;
+}
+.queue-item strong {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-pill {
+  font-size: 0.55rem;
+  padding: 2px 6px;
+  background: #283043;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #c5cede;
+}
+
+.footer {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 0.65rem;
+  opacity: 0.4;
+}
+
+.three-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.arena-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}

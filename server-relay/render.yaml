@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: sfb-relay
+    env: node
+    rootDir: server-relay
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    autoDeploy: true
+    envVars:
+      - key: TIKTOK_USERNAME
+        value: lmohss
+      - key: LOG_LEVEL
+        value: info

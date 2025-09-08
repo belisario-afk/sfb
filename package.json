@@ -1,0 +1,26 @@
+{
+  "name": "sfb",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TikTok-controlled Song Battle Arena (Spotify-powered) hosted on GitHub Pages.",
+  "homepage": "https://belisario-afk.github.io/sfb/",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "gh-pages -d dist"
+  },
+  "dependencies": {
+    "framer-motion": "^11.0.0",
+    "gsap": "^3.12.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.164.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "gh-pages": "^6.0.0",
+    "vite": "^5.3.1"
+  }
+}
