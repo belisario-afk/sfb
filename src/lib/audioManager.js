@@ -1,69 +1,71 @@
 /**
- * Advanced Audio Manager
- * - Uses Web Audio API to satisfy autoplay requirements.
- * - Falls back to an <audio> silent MP3 unlock if context not supported.
- * - Queues preview playback requests until unlocked.
- * - Provides a test beep & force play debug helpers.
+ * Audio Manager (Enhanced)
+ * - Web Audio unlock
+ * - Detailed event logging for previews
+ * - Single retry via fetch -> blob if direct URL fails
+ * - Diagnostics object window.__SFB_AUDIO
  */
 
 let audioContext = null;
 let unlocked = false;
 let unlocking = false;
-const channels = {};              // label -> HTMLAudioElement
-let pendingQueue = [];            // functions to run after unlock
+const channels = {};         // label -> HTMLAudioElement
+let pendingQueue = [];
 let lastError = null;
+const eventsLog = [];
+const MAX_EVENTS = 250;
+
+// Toggle to force the blob fetch path for ALL previews (debug)
+const FORCE_BLOB_PREVIEW = false;
 
 const SILENT_MP3_DATA =
   'data:audio/mpeg;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAACcQCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
-// Expose diagnostics
+function logEvt(type, data = {}) {
+  const entry = { t: Date.now(), type, ...data };
+  eventsLog.push(entry);
+  if (eventsLog.length > MAX_EVENTS) eventsLog.shift();
+  console.log('[Audio]', type, data);
+}
+
+// Diagnostics handle
 window.__SFB_AUDIO = {
   get context() { return audioContext; },
   get unlocked() { return unlocked; },
-  get unlocking() { return unlocking; },
   get channels() { return channels; },
   get pending() { return pendingQueue.length; },
   get lastError() { return lastError; },
-  forcePlay: (url) => {
-    unlockAudioSystem().then(() => {
-      playPreview('FORCE', url, 10);
-    });
-  }
+  get events() { return [...eventsLog]; },
+  forcePlay: (url) => unlockAudioSystem().then(() => playPreview('FORCE', url, 12)),
+  beep: () => playTestBeep()
 };
 
-/**
- * Ensure (lazy create) Web Audio context
- */
 function ensureContext() {
   if (audioContext) return audioContext;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) {
-    console.warn('[Audio] Web Audio API not supported; will use <audio> fallback only.');
+    logEvt('no-web-audio');
     return null;
   }
   audioContext = new Ctx();
   return audioContext;
 }
 
-/**
- * Attempt to unlock audio. Returns a Promise<boolean> indicating success.
- * Should be called from a user gesture (click/keypress).
- */
 export async function unlockAudioSystem() {
   if (unlocked) return true;
   if (unlocking) {
     return new Promise(res => {
-      const check = () => {
+      const poll = () => {
         if (unlocked) res(true);
         else if (!unlocking) res(false);
-        else setTimeout(check, 50);
+        else setTimeout(poll, 50);
       };
-      check();
+      poll();
     });
   }
 
   unlocking = true;
-  console.log('[Audio] Attempting unlock…');
+  logEvt('unlock-start');
 
   try {
     const ctx = ensureContext();
@@ -71,50 +73,48 @@ export async function unlockAudioSystem() {
       if (ctx.state === 'suspended') {
         try {
           await ctx.resume();
-          console.log('[Audio] AudioContext resumed.');
+          logEvt('context-resumed');
         } catch (e) {
-          console.warn('[Audio] AudioContext resume failed:', e);
+          logEvt('context-resume-failed', { error: e.message });
         }
       }
-
-      // Create a nearly silent unlock pulse
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      gain.gain.value = 0.0001; // near silent
-      osc.frequency.value = 440;
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.02); // 20ms pulse
-
-      // On some browsers unlock happens async after a short tick
-      await new Promise(r => setTimeout(r, 60));
-      if (ctx.state === 'running') {
-        unlocked = true;
-        console.log('[Audio] Unlocked via Web Audio API ✅');
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.value = 0.0001;
+        osc.frequency.value = 440;
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.02);
+        await new Promise(r => setTimeout(r, 60));
+        if (ctx.state === 'running') {
+          unlocked = true;
+          logEvt('unlocked-web-audio');
+        }
+      } catch (e) {
+        logEvt('osc-unlock-failed', { error: e.message });
       }
     }
-
-    // Fallback if still locked or context missing:
     if (!unlocked) {
-      console.log('[Audio] Falling back to silent MP3 unlock path…');
-      await new Promise((resolve) => {
+      // fallback silent mp3
+      await new Promise(resolve => {
         try {
           const a = new Audio(SILENT_MP3_DATA);
-          a.volume = 0;
+            a.volume = 0;
           a.play()
             .then(() => {
               unlocked = true;
-              console.log('[Audio] Unlocked via silent MP3 fallback ✅');
+              logEvt('unlocked-silent-mp3');
               resolve();
             })
             .catch(e => {
               lastError = e;
-              console.warn('[Audio] Silent MP3 unlock rejected:', e);
+              logEvt('unlock-mp3-failed', { error: e.message });
               resolve();
             });
         } catch (e) {
           lastError = e;
-          console.warn('[Audio] Silent MP3 unlock creation error:', e);
+          logEvt('unlock-mp3-exc', { error: e.message });
           resolve();
         }
       });
@@ -124,14 +124,13 @@ export async function unlockAudioSystem() {
   }
 
   if (unlocked) {
-    // Drain queue
     const toRun = [...pendingQueue];
     pendingQueue = [];
     toRun.forEach(fn => {
-      try { fn(); } catch (e) { console.error('[Audio] Pending playback error:', e); }
+      try { fn(); } catch (e) { logEvt('pending-error', { error: e.message }); }
     });
   } else {
-    console.warn('[Audio] Unlock attempt failed. A user gesture is still required.');
+    logEvt('unlock-failed');
   }
 
   return unlocked;
@@ -141,15 +140,9 @@ export function isAudioUnlocked() {
   return unlocked;
 }
 
-/**
- * Test beep to confirm audio path. Uses Web Audio if available; else tries <audio>.
- */
 export function playTestBeep(duration = 0.25) {
   if (!unlocked) {
-    console.warn('[Audio] Cannot beep before unlock. Attempting unlock automatically…');
-    unlockAudioSystem().then(ok => {
-      if (ok) playTestBeep(duration);
-    });
+    unlockAudioSystem().then(ok => ok && playTestBeep(duration));
     return;
   }
   const ctx = ensureContext();
@@ -164,32 +157,64 @@ export function playTestBeep(duration = 0.25) {
       osc.connect(gain).connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + duration + 0.02);
-      console.log('[Audio] Test beep played.');
+      logEvt('test-beep');
       return;
     } catch (e) {
-      console.warn('[Audio] Web Audio beep failed, trying <audio> fallback.', e);
+      logEvt('test-beep-failed', { error: e.message });
     }
   }
-  // fallback small silent beep (same silent mp3, not audible)
   const a = new Audio(SILENT_MP3_DATA);
   a.play().catch(()=>{});
 }
 
-/**
- * Play a preview URL for a given duration (seconds)
- */
+function attachDebugListeners(label, audio, meta) {
+  const tag = `[${label}]`;
+  audio.addEventListener('loadedmetadata', () => logEvt('loadedmetadata', { label, dur: audio.duration }));
+  audio.addEventListener('canplay', () => logEvt('canplay', { label }));
+  audio.addEventListener('playing', () => logEvt('playing', { label }));
+  audio.addEventListener('ended', () => logEvt('ended', { label }));
+  audio.addEventListener('error', () => {
+    const err = audio.error;
+    logEvt('error', { label, code: err?.code, message: err?.message, ...meta });
+  });
+}
+
+async function fetchAsBlobURL(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    logEvt('blob-fetch-failed', { error: e.message, url });
+    return null;
+  }
+}
+
 export function playPreview(label, url, durationSeconds = 10) {
   if (!url) {
-    console.warn(`[Audio] Track ${label} has no preview_url. Skipping.`);
+    logEvt('no-preview', { label });
     return;
   }
 
-  const action = () => {
+  const performPlayback = async () => {
     stopChannel(label);
 
-    const audio = new Audio(url);
+    let sourceUrl = url;
+    let usedBlob = false;
+
+    if (FORCE_BLOB_PREVIEW) {
+      const blobUrl = await fetchAsBlobURL(url);
+      if (blobUrl) {
+        sourceUrl = blobUrl;
+        usedBlob = true;
+      }
+    }
+
+    const audio = new Audio(sourceUrl);
     audio.crossOrigin = 'anonymous';
     audio.volume = 0.9;
+    attachDebugListeners(label, audio, { original: url, usedBlob });
 
     channels[label] = audio;
     window.__SFB_LAST_PLAY_LABEL = label;
@@ -197,49 +222,68 @@ export function playPreview(label, url, durationSeconds = 10) {
     window.__SFB_LAST_TRACKS = window.__SFB_LAST_TRACKS || [];
     window.__SFB_LAST_TRACKS.push({ label, url, ts: Date.now(), dur: durationSeconds });
 
-    const startedAt = Date.now();
+    let startedAt = Date.now();
     audio.play()
       .then(() => {
-        console.log(`[Audio] Playing ${label} (${(durationSeconds)}s) url=${url}`);
+        logEvt('play-started', { label, dur: durationSeconds, url, usedBlob });
       })
-      .catch(err => {
+      .catch(async (err) => {
         lastError = err;
-        console.error('[Audio] play() rejected:', err);
+        logEvt('play-rejected', { label, error: err.message, usedBlob });
+        // Retry once with blob fetch if we didn't already
+        if (!usedBlob) {
+          const blobUrl = await fetchAsBlobURL(url);
+          if (blobUrl) {
+            logEvt('retry-blob', { label });
+            const retryAudio = new Audio(blobUrl);
+            retryAudio.volume = 0.9;
+            attachDebugListeners(label + '-retry', retryAudio, { original: url, usedBlob: true });
+            channels[label] = retryAudio;
+            startedAt = Date.now();
+            retryAudio.play()
+              .then(() => logEvt('retry-play-started', { label }))
+              .catch(e2 => logEvt('retry-failed', { label, error: e2.message }));
+            setTimeout(() => {
+              if (channels[label] === retryAudio) {
+                try { retryAudio.pause(); } catch(e){}
+                logEvt('auto-stop', { label, elapsed: (Date.now()-startedAt)/1000 });
+              }
+            }, durationSeconds * 1000);
+          }
+        }
       });
 
     setTimeout(() => {
       if (channels[label] === audio) {
-        try { audio.pause(); } catch(e) {}
-        console.log(`[Audio] Auto-stopped ${label} after ${((Date.now()-startedAt)/1000).toFixed(1)}s`);
+        try { audio.pause(); } catch(e){}
+        logEvt('auto-stop', { label, elapsed: (Date.now()-startedAt)/1000 });
       }
     }, durationSeconds * 1000);
   };
 
   if (!unlocked) {
-    console.log('[Audio] Not unlocked. Queuing preview for', label);
-    pendingQueue.push(action);
+    logEvt('queue-before-unlock', { label });
+    pendingQueue.push(performPlayback);
     return;
   }
 
-  action();
+  performPlayback();
 }
 
 export function stopChannel(label) {
   const a = channels[label];
   if (a) {
-    try { a.pause(); } catch(e) {}
+    try { a.pause(); } catch(e){}
     delete channels[label];
-    console.log('[Audio] Stopped channel', label);
+    logEvt('channel-stopped', { label });
   }
 }
 
 export function stopAll() {
   Object.keys(channels).forEach(k => stopChannel(k));
-  console.log('[Audio] Stopped all channels.');
+  logEvt('all-stopped');
 }
 
-// Debug utilities
-window.__SFB_PLAY_PREVIEW = (url, secs=10) => {
-  unlockAudioSystem().then(() => playPreview('DEBUG', url, secs));
-};
-window.__SFB_TEST_BEEP = () => { unlockAudioSystem().then(playTestBeep); };
+// Debug helpers
+window.__SFB_PLAY_PREVIEW = (url, secs=10) => unlockAudioSystem().then(() => playPreview('DEBUG', url, secs));
+window.__SFB_TEST_BEEP = () => unlockAudioSystem().then(playTestBeep);

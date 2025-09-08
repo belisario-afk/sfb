@@ -1,53 +1,115 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 import { searchTracks } from '../lib/spotify.js';
+import { playPreview, unlockAudioSystem } from '../lib/audioManager.js';
 
 export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
   const { authState } = useAppContext();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const doSearch = async (e) => {
-    e.preventDefault();
+  const doSearch = async (q) => {
+    setQuery(q);
+    if (!q) {
+      setResults([]);
+      return;
+    }
     if (!authState?.accessToken) return;
-    setBusy(true);
+    setLoading(true);
     try {
-      const r = await searchTracks(authState.accessToken, query);
-      setResults(r);
+      const items = await searchTracks(authState.accessToken, q);
+      setResults(items || []);
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   };
 
   return (
     <div className="modal">
-      <h3 style={{marginTop:0}}>Search Track</h3>
-      {!authState?.accessToken && <div style={{color:'#ff7171', fontSize:'0.75rem', marginBottom:'0.5rem'}}>Spotify auth required</div>}
-      <form onSubmit={doSearch} style={{display:'flex', gap:'0.5rem'}}>
+      <div className="modal-panel">
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+          <h3 style={{margin:0}}>Search Spotify Tracks</h3>
+          <button className="btn-outline" onClick={onClose}>Close</button>
+        </div>
         <input
           className="input"
-          placeholder="Song name or artist"
+            style={{marginTop:'0.5rem'}}
+          placeholder="Type to search..."
           value={query}
-          onChange={e=>setQuery(e.target.value)}
+          onChange={(e) => doSearch(e.target.value)}
         />
-        <button className="btn-outline" disabled={busy || !query}>Search</button>
-      </form>
-      <div style={{maxHeight:'50vh', overflowY:'auto', marginTop:'0.75rem', display:'flex', flexDirection:'column', gap:'0.4rem'}}>
-        {results.map(t => (
-          <div key={t.id} className="queue-item" style={{cursor:'pointer'}} onClick={()=>onSelect(t)}>
-            <img className="album-cover" src={t.album.images?.[2]?.url || t.album.images?.[0]?.url} />
-            <div className="meta">
-              <strong>{t.name}</strong>
-              <span>{t.artists.map(a=>a.name).join(', ')}</span>
-              <span style={{opacity:0.6}}>{t.id}</span>
-            </div>
+        {loading && <div style={{fontSize:'0.7rem', opacity:0.6, marginTop:'0.5rem'}}>Searching…</div>}
+        <div style={{maxHeight:300, overflowY:'auto', marginTop:'0.75rem'}}>
+          {results.map(r => {
+            const hasPreview = !!r.preview_url;
+            return (
+              <div
+                key={r.id}
+                style={{
+                  display:'flex',
+                  alignItems:'center',
+                  gap:'0.5rem',
+                  padding:'0.4rem 0.2rem',
+                  borderBottom:'1px solid rgba(255,255,255,0.05)'
+                }}
+              >
+                <img
+                  src={r.album.images?.[2]?.url || r.album.images?.[0]?.url}
+                  alt={r.name}
+                  style={{width:40,height:40,objectFit:'cover',borderRadius:4}}
+                />
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontSize:'0.75rem', fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>
+                    {r.name}
+                  </div>
+                  <div style={{fontSize:'0.6rem', opacity:0.55}}>
+                    {r.artists.map(a=>a.name).join(', ')}
+                  </div>
+                  <div style={{fontSize:'0.55rem', opacity:0.45}}>
+                    {r.id}
+                  </div>
+                </div>
+                <div style={{display:'flex', flexDirection:'column', gap:'0.25rem', alignItems:'flex-end'}}>
+                  <span style={{
+                    fontSize:'0.55rem',
+                    padding:'2px 4px',
+                    borderRadius:4,
+                    background: hasPreview ? '#203a2f' : '#45222f',
+                    letterSpacing:'0.5px'
+                  }}>
+                    {hasPreview ? 'PREVIEW ✔' : 'NO PREVIEW'}
+                  </span>
+                  <div style={{display:'flex', gap:'0.3rem'}}>
+                    {hasPreview && (
+                      <button
+                        className="btn-outline"
+                        style={{fontSize:'0.55rem'}}
+                        onClick={async () => {
+                          await unlockAudioSystem();
+                          playPreview('TEST-'+r.id.slice(0,4), r.preview_url, 8);
+                        }}
+                      >Test</button>
+                    )}
+                    <button
+                      className="btn"
+                      style={{fontSize:'0.55rem'}}
+                      onClick={() => onSelect(r)}
+                    >Add</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {!loading && !results.length && query && (
+            <div style={{fontSize:'0.65rem', opacity:0.5, padding:'0.5rem'}}>No results.</div>
+          )}
+        </div>
+        {!authState?.accessToken && (
+          <div style={{marginTop:'0.75rem', fontSize:'0.6rem', color:'#e08'}}>
+            Spotify not connected.
           </div>
-        ))}
-        {results.length === 0 && !busy && <div style={{opacity:0.5, fontSize:'0.7rem'}}>No results yet.</div>}
-      </div>
-      <div style={{display:'flex', justifyContent:'flex-end', marginTop:'0.75rem'}}>
-        <button className="btn-outline" onClick={onClose}>Close</button>
+        )}
       </div>
     </div>
   );
