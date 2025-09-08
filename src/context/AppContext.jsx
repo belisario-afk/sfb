@@ -68,9 +68,14 @@ export function AppProvider({ children }) {
   const [authChecking, setAuthChecking] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [chatMode, setChatMode] = useState('simulation');
+
+  // Chat / Relay
+  const [chatMode, setChatMode] = useState(localStorage.getItem('chatMode') || 'simulation');
   const [relayUrl, setRelayUrl] = useState(
     localStorage.getItem('relayUrl') || 'wss://sfb-qrzl.onrender.com/ws'
+  );
+  const [tiktokUsername, setTiktokUsername] = useState(
+    localStorage.getItem('tiktokUsername') || ''
   );
 
   // Visual preferences
@@ -84,7 +89,6 @@ export function AppProvider({ children }) {
     (() => {
       const stored = localStorage.getItem('reducedMotion');
       if (stored !== null) return stored === 'true';
-      // respect system preference initial
       if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
       return DEFAULT_REDUCED_MOTION;
     })()
@@ -167,7 +171,12 @@ export function AppProvider({ children }) {
     }
   }, [spotifyWebPlayer.player, setEngineSpotifyPlayer]);
 
-  const chat = useChat({ mode: chatMode, relayUrl });
+  // Chat hook wired to relay with TikTok username
+  const chat = useChat({
+    mode: chatMode,
+    relayUrl,
+    tiktokUsername
+  });
 
   const normalizeRelay = useCallback((val) => {
     let v = (val || '').trim();
@@ -183,6 +192,17 @@ export function AppProvider({ children }) {
     const t = cid.trim();
     setSpotifyClientIdState(t);
     localStorage.setItem('customSpotifyClientId', t);
+  }, []);
+
+  const setChatModePersist = useCallback((mode) => {
+    localStorage.setItem('chatMode', mode);
+    setChatMode(mode);
+  }, []);
+
+  const setTiktokUsernamePersist = useCallback((name) => {
+    const t = (name || '').trim();
+    localStorage.setItem('tiktokUsername', t);
+    setTiktokUsername(t);
   }, []);
 
   const logoutSpotify = useCallback(() => {
@@ -246,21 +266,27 @@ export function AppProvider({ children }) {
       t = setTimeout(loop, 60000);
     }
     loop();
-    return () => {
+  return () => {
       stop = true;
       clearTimeout(t);
     };
   }, [spotifyClientId]);
 
-  // Chat commands
+  // Chat commands from TikTok relay
   useEffect(() => {
     if (!chat?.subscribe) return;
     const handler = (msg) => {
       const raw = (msg?.text || '').trim();
+      if (!raw) return;
       const lower = raw.toLowerCase();
+
       if (lower.startsWith('!vote ')) {
         const side = lower.split(/\s+/)[1];
-        if (side === 'a' || side === 'b') vote(side, msg.user || 'anon');
+        if (side === 'a' || side === 'b') {
+          // Use stable unique id when available for one-vote-per-viewer rules
+          const voterId = msg.userId || msg.username || msg.displayName || 'anon';
+          vote(side, voterId);
+        }
       } else if (lower.startsWith('!battle ')) {
         const q = raw.slice('!battle '.length).trim();
         if (q) addTopTrackByQuery(q);
@@ -320,6 +346,7 @@ export function AppProvider({ children }) {
   };
 
   const value = {
+    // Auth
     authState,
     authError,
     authChecking,
@@ -328,15 +355,20 @@ export function AppProvider({ children }) {
     beginSpotifyAuth,
     logoutSpotify,
 
+    // Spotify
     spotifyClientId,
     setSpotifyClientId: updateClientId,
 
+    // Chat / Relay
     chatMode,
-    setChatMode,
+    setChatMode: setChatModePersist,
     relayUrl,
     setRelayUrl: normalizeRelay,
+    tiktokUsername,
+    setTiktokUsername: setTiktokUsernamePersist,
     chat,
 
+    // Battle
     queue,
     battle,
     tryStartBattle,
@@ -351,13 +383,15 @@ export function AppProvider({ children }) {
     addDemoPair,
     previewTrack,
 
+    // UI / modal
     modalOpen,
     setModalOpen,
 
+    // Player
     spotifyPlayer,
     voteRemaining,
 
-    // UI prefs
+    // Visual prefs
     visualFxEnabled,
     reducedMotion,
     toggleVisualFx,

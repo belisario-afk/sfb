@@ -1,150 +1,139 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+
 /**
- * Unified useChat hook
+ * useChat
  * Modes:
- *  - simulation: generates fake chat messages with commands
- *  - relay: connects to a WebSocket URL (expects JSON { user, text } or plain text)
- *  - direct: passive
+ *  - simulation: local ticker, no network (for dev)
+ *  - relay: WebSocket to your Node relay that streams TikTok chat
  *
- * Returns:
- * {
- *   mode, relayUrl, status,
- *   messages, send(text, user?),
- *   subscribe(fn), unsubscribe(fn)
- * }
+ * Relay protocol:
+ *  Client sends on open:
+ *    { type: 'subscribe', platform: 'tiktok', room: <tiktokUsername> }
+ *  Server broadcasts messages:
+ *    {
+ *      type: 'chat',
+ *      platform: 'tiktok',
+ *      userId, username, displayName, avatarUrl, text, ts
+ *    }
  */
-import { useEffect, useRef, useState } from 'react';
-
-const MAX_MESSAGES = 400;
-let globalMsgId = 0;
-const nextId = () => 'm' + (++globalMsgId).toString(36);
-
-export default function useChat({ mode = 'simulation', relayUrl } = {}) {
-  const [messages, setMessages] = useState([]);
-  const [status, setStatus] = useState('idle'); // idle|connecting|open|closed|error
+export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername }) {
+  const listenersRef = useRef(new Set());
   const wsRef = useRef(null);
-  const simRef = useRef(null);
-  const listeners = useRef(new Set());
+  const [status, setStatus] = useState('idle');
 
-  function emit(msg) {
-    listeners.current.forEach(fn => {
-      try { fn(msg); } catch {}
-    });
-  }
+  // Public API: subscribe to incoming messages
+  const api = useMemo(() => ({
+    subscribe(fn) {
+      if (typeof fn !== 'function') return () => {};
+      listenersRef.current.add(fn);
+      return () => listenersRef.current.delete(fn);
+    },
+    status
+  }), [status]);
 
-  function pushMessage(user, text) {
-    if (!text) return;
-    const msg = { id: nextId(), user: user || 'anon', text: text.toString(), ts: Date.now() };
-    setMessages(prev => {
-      const next = [...prev, msg];
-      if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
-      return next;
-    });
-    emit(msg);
-  }
-
-  function send(text, user = 'you') {
-    pushMessage(user, text);
-    if (mode === 'relay' && wsRef.current && wsRef.current.readyState === 1) {
-      try {
-        wsRef.current.send(JSON.stringify({ type: 'chat', user, text }));
-      } catch {}
-    }
-  }
-
-  // Simulation
-  useEffect(() => {
-    if (mode !== 'simulation') return;
-    setStatus('open');
-    if (messages.length === 0) pushMessage('system', 'Simulation started.');
-    simRef.current = setInterval(() => {
-      const users = ['ada', 'linus', 'grace', 'hopper', 'turing', 'lovelace'];
-      const verbs = ['queues', 'likes', 'pings', 'votes', 'adds', 'requests'];
-      const u = users[Math.random() * users.length | 0];
-      const r = Math.random();
-      let text;
-      if (r < 0.25) text = '!vote ' + (Math.random() > 0.5 ? 'A' : 'B');
-      else if (r < 0.47) {
-        const q = ['orbit', 'neon', 'pulse', 'groove', 'sunset', 'drift'][Math.random() * 6 | 0];
-        text = '!battle ' + q;
-      } else {
-        text = verbs[Math.random() * verbs.length | 0] + ' something';
-      }
-      pushMessage(u, text);
-    }, 3500 + Math.random() * 3000);
-    return () => clearInterval(simRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
-
-  // Relay
   useEffect(() => {
     if (mode !== 'relay') {
-      if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
+      setStatus('simulation');
       return;
     }
     if (!relayUrl) {
-      setStatus('error');
-      pushMessage('system', 'Relay URL missing.');
+      setStatus('error:no-relay');
       return;
     }
-    setStatus('connecting');
-    const ws = new WebSocket(relayUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setStatus('open');
-      pushMessage('system', 'Relay connected.');
-    };
-    ws.onerror = () => {
-      setStatus('error');
-      pushMessage('system', 'Relay error.');
-    };
-    ws.onclose = () => {
-      setStatus('closed');
-      pushMessage('system', 'Relay closed.');
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        if (data && (data.text || data.message)) {
-          pushMessage(data.user || data.username || 'anon', data.text || data.message);
-        } else {
-          pushMessage('relay', ev.data);
-        }
-      } catch {
-        pushMessage('relay', ev.data);
-      }
-    };
-
-    return () => {
-      try { ws.close(); } catch {}
-      wsRef.current = null;
-    };
-  }, [mode, relayUrl]);
-
-  // Direct
-  useEffect(() => {
-    if (mode === 'direct') {
-      setStatus('open');
-      if (messages.length === 0) pushMessage('system', 'Direct chat ready.');
+    if (!tiktokUsername) {
+      setStatus('error:no-username');
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    let closed = false;
+    let retryTimer = null;
+
+    function connect() {
+      setStatus('connecting');
+      try {
+        const ws = new WebSocket(relayUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          setStatus('connected');
+          ws.send(JSON.stringify({
+            type: 'subscribe',
+            platform: 'tiktok',
+            room: tiktokUsername
+          }));
+        };
+
+        ws.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (data?.type === 'chat' && data?.text) {
+              const msg = normalizeMessage(data);
+              for (const fn of listenersRef.current) {
+                try { fn(msg); } catch {}
+              }
+            }
+          } catch {}
+        };
+
+        ws.onclose = () => {
+          if (closed) return;
+          setStatus('disconnected');
+          retryTimer = setTimeout(connect, 1500);
+        };
+        ws.onerror = () => {
+          // will trigger close
+        };
+      } catch {
+        setStatus('error');
+        retryTimer = setTimeout(connect, 2000);
+      }
+    }
+
+    connect();
+    return () => {
+      closed = true;
+      try { wsRef.current?.close(); } catch {}
+      wsRef.current = null;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [mode, relayUrl, tiktokUsername]);
+
+  // Simulation messages (dev)
+  useEffect(() => {
+    if (mode !== 'simulation') return;
+    let i = 0;
+    setStatus('simulation');
+    const names = ['Ava', 'Ben', 'Chloe', 'Dre', 'Eve', 'Finn', 'Gia', 'Hank'];
+    const timer = setInterval(() => {
+      const name = names[i++ % names.length];
+      const text = i % 3 === 0 ? '!vote a' : (i % 5 === 0 ? '!battle daft punk' : 'hello!');
+      const msg = {
+        platform: 'sim',
+        userId: 'sim_' + name.toLowerCase(),
+        username: name.toLowerCase(),
+        displayName: name,
+        avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(name)}`,
+        text,
+        ts: Date.now()
+      };
+      for (const fn of listenersRef.current) {
+        try { fn(msg); } catch {}
+      }
+    }, 2500);
+    return () => clearInterval(timer);
   }, [mode]);
 
-  function subscribe(fn) {
-    if (typeof fn === 'function') listeners.current.add(fn);
-    return () => unsubscribe(fn);
-  }
-  function unsubscribe(fn) {
-    listeners.current.delete(fn);
-  }
+  return api;
+}
 
+function normalizeMessage(data) {
   return {
-    mode,
-    relayUrl,
-    status,
-    messages,
-    send,
-    subscribe,
-    unsubscribe
+    platform: data.platform || 'tiktok',
+    userId: data.userId || data.uniqueId || '',
+    username: data.username || data.uniqueId || '',
+    displayName: data.displayName || data.nickname || data.username || 'viewer',
+    avatarUrl: data.avatarUrl || data.profilePictureUrl || '',
+    text: data.text || '',
+    ts: data.ts || Date.now()
   };
 }

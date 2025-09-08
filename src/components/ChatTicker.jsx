@@ -1,56 +1,49 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 
-/**
- * ChatTicker
- * Displays recent chat messages (default last 25).
- * Safe against undefined chat or message structures.
- */
-export default function ChatTicker({
-  limit = 25,
-  className = '',
-  emptyMessage = 'No chat yet.'
-}) {
-  const { chat } = useAppContext() || {};
-  const base = Array.isArray(chat?.messages) ? chat.messages : [];
-  const recent = useMemo(() => base.slice(-limit), [base, limit]);
+export default function ChatTicker({ limit = 60 }) {
+  const { chat } = useAppContext();
+  const [lines, setLines] = useState([]);
+  const listRef = useRef(null);
 
-  if (!recent.length) {
-    return (
-      <div
-        className={`chat-ticker ${className}`}
-        style={{ opacity: 0.5, fontSize: '0.6rem', padding: '0.25rem 0' }}
-      >
-        {emptyMessage}
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!chat?.subscribe) return;
+    const unsub = chat.subscribe((msg) => {
+      setLines(prev => {
+        const next = [...prev, {
+          id: `${msg.platform}:${msg.userId}:${msg.ts}`,
+          name: msg.displayName || msg.username || 'viewer',
+          avatar: msg.avatarUrl || '',
+          text: msg.text || ''
+        }];
+        if (next.length > limit) next.shift();
+        return next;
+      });
+    });
+    return () => unsub && unsub();
+  }, [chat, limit]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight + 200;
+  }, [lines]);
 
   return (
-    <div className={`chat-ticker ${className}`} style={{display:'flex', flexDirection:'column', gap:'2px'}}>
-      {recent.map((m, i) => {
-        const user = (m?.user || m?.username || 'anon').toString();
-        const text = (m?.text || m?.message || '').toString();
-        const key = m?.id || `${i}-${user}-${text.slice(0,10)}`;
-        return (
-          <div
-            key={key}
-            className="chat-line"
-            style={{
-              display:'flex',
-              gap:'0.4rem',
-              fontSize:'0.65rem',
-              whiteSpace:'nowrap',
-              overflow:'hidden',
-              textOverflow:'ellipsis'
-            }}
-            title={`${user}: ${text}`}
-          >
-            <span style={{ color:'#7dd3fc', flexShrink:0 }}>{user}:</span>
-            <span style={{ overflow:'hidden', textOverflow:'ellipsis' }}>{text}</span>
+    <div className="chat-ticker" ref={listRef}>
+      {lines.map((l) => (
+        <div key={l.id} className="chat-line row">
+          <div className="chat-avatar">
+            {l.avatar
+              ? <img src={l.avatar} alt="" />
+              : <div className="chat-avatar-fallback" />}
           </div>
-        );
-      })}
+          <div className="chat-msg">
+            <span className="chat-name">{l.name}</span>
+            <span className="chat-text">{l.text}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

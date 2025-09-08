@@ -23,6 +23,7 @@ export default function SettingsPanel() {
 
     chatMode, setChatMode,
     relayUrl, setRelayUrl,
+    tiktokUsername, setTiktokUsername,
 
     addDemoPair,
     nextBattle,
@@ -39,6 +40,7 @@ export default function SettingsPanel() {
 
   const [localClientId, setLocalClientId] = useState(spotifyClientId);
   const [localRelay, setLocalRelay] = useState(relayUrl);
+  const [localTikTok, setLocalTikTok] = useState(tiktokUsername);
 
   const saveClientId = () => {
     const newId = localClientId.trim();
@@ -46,6 +48,7 @@ export default function SettingsPanel() {
     localStorage.setItem('customSpotifyClientId', newId);
   };
   const saveRelay = () => setRelayUrl(localRelay.trim());
+  const saveTikTok = () => setTiktokUsername(localTikTok.trim());
 
   function scopeStatus() {
     if (!authState) return 'Not Logged In';
@@ -115,9 +118,14 @@ export default function SettingsPanel() {
           <div className="kv-row"><span>Mode</span><span>{PLAYBACK_MODE}</span></div>
           <div className="kv-row"><span>Round1 (each)</span><span>{ROUND1_SEGMENT_MS/1000}s</span></div>
           <div className="kv-row"><span>Round2 (each)</span><span>{ROUND2_SEGMENT_MS/1000}s</span></div>
-          <div className="kv-row"><span>Vote Window</span><span>{VOTE_WINDOW_MS/1000}s x2</span></div>
+          <div className="kv-row"><span>Vote Window</span><span>{VOTE_WINDOW_MS/1000}s × 2</span></div>
           <div className="kv-row"><span>Voting Rule</span><span>{VOTING_RULE}</span></div>
         </div>
+        {battle && (
+          <div className="mini-stats">
+            Stage: {battle.stage} • A:{votesA} B:{votesB} {battle.winner && <strong style={{color:'#4ade80'}}> Winner: {battle.winner.toUpperCase()}</strong>}
+          </div>
+        )}
         {PLAYBACK_MODE === 'FULL' && (
           <div className="status-box">
             <div className="kv-row"><span>Player</span><span>{spotifyPlayer?.status}</span></div>
@@ -125,11 +133,35 @@ export default function SettingsPanel() {
             {spotifyPlayer?.error && <div className="error-text">{spotifyPlayer.error}</div>}
           </div>
         )}
-        {battle && (
-          <div className="mini-stats">
-            Stage: {battle.stage} • A:{votesA} B:{votesB} {battle.winner && <strong style={{color:'#4ade80'}}> Winner: {battle.winner.toUpperCase()}</strong>}
+      </section>
+
+      <section className="settings-block">
+        <h4>Chat & Relay</h4>
+        <div className="kv">
+          <div className="kv-row"><span>Mode</span>
+            <select className="input" value={chatMode} onChange={e => setChatMode(e.target.value)}>
+              <option value="simulation">Simulation</option>
+              <option value="relay">Relay (WebSocket)</option>
+            </select>
           </div>
-        )}
+          <div className="kv-row">
+            <span>Relay URL</span>
+            <div style={{flex:1}}>
+              <input className="input" value={localRelay} onChange={e=>setLocalRelay(e.target.value)} placeholder="wss://your-relay/ws" />
+              <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
+            </div>
+          </div>
+          <div className="kv-row">
+            <span>TikTok Username</span>
+            <div style={{flex:1}}>
+              <input className="input" value={localTikTok} onChange={e=>setLocalTikTok(e.target.value)} placeholder="your_tiktok_username" />
+              <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveTikTok}>Save Username</button>
+            </div>
+          </div>
+        </div>
+        <div className="hint-text">
+          Relay mode connects to your Node server that reads TikTok Live chat and streams messages (with avatar/name) to this app.
+        </div>
       </section>
 
       <section className="settings-block">
@@ -148,24 +180,6 @@ export default function SettingsPanel() {
             <span>Reduced Motion</span>
           </label>
         </div>
-        <div className="hint-text">
-          FX adds particles, parallax & dynamic light. Disable on low-end devices.
-        </div>
-      </section>
-
-      <section className="settings-block">
-        <h4>Chat Mode</h4>
-        <select className="input" value={chatMode} onChange={e=>setChatMode(e.target.value)}>
-          <option value="simulation">Simulation</option>
-          <option value="relay">Relay (WebSocket)</option>
-          <option value="direct">Direct</option>
-        </select>
-        {chatMode === 'relay' && (
-          <div style={{marginTop:'0.5rem'}}>
-            <input className="input" value={localRelay} onChange={e=>setLocalRelay(e.target.value)} placeholder="wss://relay/ws" />
-            <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
-          </div>
-        )}
       </section>
 
       <section className="settings-block">
