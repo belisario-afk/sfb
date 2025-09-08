@@ -1,0 +1,326 @@
+/* ========== Root Theme ========== */
+:root {
+  --bg: #0c0f14;
+  --bg-alt: #121820;
+  --bg-panel: #151e27;
+  --bg-panel-alt: #1b2732;
+  --border: rgba(255,255,255,0.12);
+  --border-soft: rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.2);
+  --text: #f4f6f9;
+  --text-dim: #9aa6b2;
+  --accent: #4ade80;
+  --accent-fade: rgba(74,222,128,0.15);
+  --accent-alt: #3b82f6;
+  --danger: #ef4444;
+  --danger-fade: rgba(239,68,68,0.15);
+  --warn: #fbbf24;
+  --radius-s: 4px;
+  --radius: 8px;
+  --radius-l: 12px;
+  --shadow: 0 4px 14px -4px rgba(0,0,0,0.4);
+  --font-stack: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  font-synthesis: none;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-stack);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--accent-alt);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ========== Layout Grid ========== */
+.app-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr 340px;
+  gap: 1rem;
+  height: 100vh;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+@media (max-width: 1300px) {
+  .app-grid {
+    grid-template-columns: 260px 1fr 320px;
+  }
+}
+
+@media (max-width: 1050px) {
+  .app-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    height: auto;
+    min-height: 100vh;
+  }
+}
+
+/* ========== Panels & Cards ========== */
+.panel,
+.card,
+.modal-panel {
+  background: linear-gradient(145deg, var(--bg-panel), var(--bg-panel-alt));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem;
+  position: relative;
+}
+
+.panel {
+  box-shadow: var(--shadow);
+}
+
+.panel h3, .panel h4 {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.section-divider {
+  height: 1px;
+  width: 100%;
+  background: var(--border-soft);
+  margin: 0.75rem 0;
+}
+
+/* ========== Buttons ========== */
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+.btn,
+.btn-outline {
+  font-size: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-s);
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  letter-spacing: 0.5px;
+  transition: background .18s, color .18s, border-color .18s, transform .15s;
+  user-select: none;
+}
+
+.btn {
+  background: var(--accent-fade);
+  color: var(--accent);
+  border: 1px solid rgba(74,222,128,0.35);
+}
+.btn:hover:not(:disabled) {
+  background: rgba(74,222,128,0.22);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-outline {
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-outline:hover:not(:disabled) {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.2);
+}
+.btn-outline:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: var(--danger-fade);
+  color: var(--danger);
+  border: 1px solid rgba(239,68,68,0.4);
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(239,68,68,0.25);
+}
+
+/* ========== Inputs ========== */
+.input,
+select,
+textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-s);
+  color: var(--text);
+  font-size: 0.7rem;
+  padding: 0.5rem 0.6rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .18s, background .18s;
+}
+
+.input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent-alt);
+  background: rgba(255,255,255,0.1);
+}
+
+::placeholder {
+  color: rgba(255,255,255,0.35);
+}
+
+/* ========== Scrollbars ========== */
+::-webkit-scrollbar {
+  width: 9px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.04);
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--bg-panel-alt), var(--bg-panel));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 30px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(var(--bg-panel-alt), #1f2c38);
+}
+
+/* ========== Chat Ticker ========== */
+.chat-ticker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.15;
+}
+
+.chat-line {
+  animation: fadeIn .35s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========== Modal ========== */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2.5rem 1.2rem 1.2rem;
+  z-index: 200;
+}
+
+.modal-panel {
+  width: min(760px, 100%);
+  max-height: 92vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: popIn .35s cubic-bezier(.4,.8,.3,1);
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(16px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Buttons inside modal header override */
+.modal-panel h3 {
+  font-size: 0.9rem;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+/* Search list highlight (if not using inline background) */
+.search-row.highlight {
+  background: rgba(255,255,255,0.08);
+}
+
+/* ========== Utility ========== */
+.fade {
+  opacity: 0.6;
+}
+
+.badge {
+  font-size: 0.55rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.flex {
+  display: flex;
+}
+.col {
+  flex-direction: column;
+}
+.gap-xs { gap: 0.25rem; }
+.gap-s { gap: 0.5rem; }
+.gap-m { gap: 0.75rem; }
+
+/* ========== Battle/Queue (if removing inline styles later) ========== */
+.battle-card {
+  background: linear-gradient(135deg, #17212b, #131b23);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+}
+
+.queue-list {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.55rem;
+  padding: 0.25rem 0.2rem;
+  border-radius: 4px;
+  transition: background .15s;
+}
+.queue-item:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+/* ========== Focus Outline (Accessibility) ========== */
+:focus-visible {
+  outline: 2px solid var(--accent-alt);
+  outline-offset: 2px;
+}
+
+/* ========== Transitions ========== */
+.panel, .card, .modal-panel, .btn, .btn-outline, .input {
+  transition: background .25s, border-color .25s, color .25s, box-shadow .25s;
+}
