@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { exchangeCodeForToken, parseAuthCallback } from '../lib/spotify.js';
+import { exchangeCodeForToken } from '../lib/spotify.js';
 
 /**
- * Handles Spotify PKCE tokens and refresh.
+ * Handles Spotify PKCE tokens & expiry.
  */
 export default function useSpotifyAuth(clientId) {
   const [authState, setAuthState] = useState(() => {
@@ -18,24 +18,22 @@ export default function useSpotifyAuth(clientId) {
     return null;
   });
 
-  // Process callback
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const url = new URL(window.location.href);
-    const hasCode = url.searchParams.get('code');
+    const code = url.searchParams.get('code');
     const error = url.searchParams.get('error');
+
     if (error) {
       console.warn('Spotify auth error', error);
     }
-    if (hasCode) {
+
+    if (code) {
       (async () => {
         try {
-          const code = hasCode;
-            const redirectUri = window.location.origin + '/sfb/callback';
-          const tokenData = await exchangeCodeForToken(code, clientId, redirectUri);
+          const tokenData = await exchangeCodeForToken(code, clientId);
           setAuthState(tokenData);
           localStorage.setItem('spotifyTokens', JSON.stringify(tokenData));
-          // clean URL
           url.searchParams.delete('code');
           url.searchParams.delete('state');
           history.replaceState({}, '', url.toString());
@@ -46,13 +44,14 @@ export default function useSpotifyAuth(clientId) {
     }
   }, [clientId]);
 
-  // Basic expiry check
+  // Expiry watcher
   useEffect(() => {
     if (!authState) return;
     const interval = setInterval(() => {
       if (authState.expires_at <= Date.now()) {
         localStorage.removeItem('spotifyTokens');
-        window.location.reload();
+        // Optional: could auto re-auth flow. For now just clear.
+        setAuthState(null);
       }
     }, 15000);
     return () => clearInterval(interval);

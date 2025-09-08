@@ -2,13 +2,16 @@ import { generateCodeChallenge, generateCodeVerifier } from './pkce.js';
 
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
-const SCOPES = [
-  'user-read-email'
-];
+const SCOPES = ['user-read-email'];
+
+// If you REALLY need to revert to the non-slash redirect, flip this to true
+const USE_LEGACY_NO_SLASH = false;
 
 function getRedirectUri() {
-  // Use trailing slash callback folder so GitHub Pages serves callback/index.html
-  return window.location.origin + '/sfb/callback/';
+  // Preferred (has a real callback/index.html page)
+  const preferred = window.location.origin + '/sfb/callback/';
+  const legacy = window.location.origin + '/sfb/callback';
+  return USE_LEGACY_NO_SLASH ? legacy : preferred;
 }
 
 export function startSpotifyAuth(clientId) {
@@ -24,13 +27,16 @@ export function startSpotifyAuth(clientId) {
       code_challenge_method: 'S256',
       code_challenge: codeChallenge
     });
-    window.location = `${SPOTIFY_AUTH_URL}?${params.toString()}`;
+    window.location.href = `${SPOTIFY_AUTH_URL}?${params.toString()}`;
   });
 }
 
 export async function exchangeCodeForToken(code, clientId) {
   const codeVerifier = localStorage.getItem('spotify_code_verifier');
   const redirectUri = getRedirectUri();
+  if (!codeVerifier) {
+    throw new Error('Missing code_verifier (PKCE). Clear storage and retry.');
+  }
   const body = new URLSearchParams({
     client_id: clientId,
     grant_type: 'authorization_code',
@@ -44,7 +50,8 @@ export async function exchangeCodeForToken(code, clientId) {
     body
   });
   if (!res.ok) {
-    throw new Error('Token exchange failed: ' + res.status);
+    const txt = await res.text().catch(()=> '');
+    throw new Error('Token exchange failed: ' + res.status + ' ' + txt);
   }
   const data = await res.json();
   const expires_at = Date.now() + (data.expires_in * 1000) - 60000;
@@ -71,7 +78,7 @@ export async function searchTracks(accessToken, query) {
     q: query,
     type: 'track',
     limit: '10'
-  }).toString()}`, {
+  })}`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
   if (!res.ok) return [];
