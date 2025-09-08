@@ -3,6 +3,7 @@ import { playPreview, stopAll } from '../lib/audioManager.js';
 
 /**
  * Manages queue, current battle states, timing & votes.
+ * Updated to skip tracks without preview_url automatically.
  */
 export default function useBattleEngine() {
   const [queue, setQueue] = useState([]);
@@ -10,7 +11,18 @@ export default function useBattleEngine() {
   const timerRef = useRef(null);
 
   const addTrack = (track) => {
-    setQueue(q => [...q, track]);
+    if (!track) return;
+    // Mark missing preview
+    const annotated = {
+      ...track,
+      _noPreview: !track.preview_url
+    };
+    setQueue(q => [...q, annotated]);
+  };
+
+  const sanitizeForBattle = (t) => {
+    if (!t) return null;
+    return t._noPreview ? null : t;
   };
 
   const tryStartBattle = useCallback(() => {
@@ -20,9 +32,36 @@ export default function useBattleEngine() {
     });
     setQueue(q => {
       if (q.length < 2) return q;
-      const [a, b, ...rest] = q;
+      // Pull until we have two with previews or run out
+      let working = [...q];
+      let candidateA = null;
+      let candidateB = null;
+      while (working.length > 0 && (!candidateA || !candidateB)) {
+        const next = working.shift();
+        if (!next._noPreview) {
+          if (!candidateA) candidateA = next;
+          else if (!candidateB) candidateB = next;
+        } else {
+          console.warn('[Battle] Skipping queued track with no preview:', next.name);
+        }
+      }
+      if (!candidateA || !candidateB) {
+        // Put back any we didn't use (skip those taken)
+        const remaining = working;
+        setTimeout(() => {
+          // If we only found one valid track, keep it in queue front
+          if (candidateA && !candidateB) {
+            setQueue(old => [candidateA, ...remaining]);
+          } else {
+            setQueue(remaining);
+          }
+        }, 0);
+        return q; // abort start
+      }
+
       setCurrentBattle({
-        a, b,
+        a: candidateA,
+        b: candidateB,
         stage: 'intro',
         startedAt: Date.now(),
         votes: { a: new Set(), b: new Set() },
@@ -30,11 +69,13 @@ export default function useBattleEngine() {
         winner: null,
         paused: false
       });
-      return rest;
+
+      // Rebuild queue without used items + skipped no-preview ones
+      const newQueue = working;
+      return newQueue;
     });
   }, []);
 
-  // Core stage progression
   const proceed = useCallback(() => {
     setCurrentBattle(b => {
       if (!b) return b;
@@ -42,41 +83,46 @@ export default function useBattleEngine() {
       const next = { ...b };
       const totalVotesA = b.votes.a.size;
       const totalVotesB = b.votes.b.size;
+
+      const playIfPreview = (label, track, dur) => {
+        if (!track?.preview_url) {
+          console.warn('[Battle] Cannot play track (no preview):', track?.name);
+          return;
+        }
+        playPreview(label, track.preview_url, dur);
+      };
+
       switch (b.stage) {
         case 'intro':
           next.stage = 'round1A';
-          playPreview('A', b.a.preview_url, 10);
+          playIfPreview('A', b.a, 10);
           break;
         case 'round1A':
           next.stage = 'round1B';
-          playPreview('B', b.b.preview_url, 10);
+          playIfPreview('B', b.b, 10);
           break;
         case 'round1B':
           next.round1Leader = totalVotesA >= totalVotesB ? 'a' : 'b';
+          next.stage = 'round2A';
           if (next.round1Leader === 'a') {
-            next.stage = 'round2A';
-            playPreview('A', b.a.preview_url, 20);
+            playIfPreview('A', b.a, 20);
           } else {
-            next.stage = 'round2A';
-            playPreview('B', b.b.preview_url, 20);
+            playIfPreview('B', b.b, 20);
           }
           break;
         case 'round2A':
-          // whichever didn't play now plays second
-          if (b.round1Leader === 'a') {
-            next.stage = 'round2B';
-            playPreview('B', b.b.preview_url, 20);
-          } else {
-            next.stage = 'round2B';
-            playPreview('A', b.a.preview_url, 20);
-          }
+          next.stage = 'round2B';
+            if (b.round1Leader === 'a') {
+              playIfPreview('B', b.b, 20);
+            } else {
+              playIfPreview('A', b.a, 20);
+            }
           break;
         case 'round2B':
           next.stage = 'finished';
           next.winner = totalVotesA >= totalVotesB ? 'a' : 'b';
           stopAll();
           break;
-        case 'finished':
         default:
           break;
       }
@@ -84,22 +130,18 @@ export default function useBattleEngine() {
     });
   }, []);
 
-  // Timer logic for automatic stage transitions
   useEffect(() => {
     clearTimeout(timerRef.current);
     if (!currentBattle) return;
     if (currentBattle.paused) return;
 
-    let delay = 2000; // intro
+    let delay = 2000;
     if (currentBattle.stage === 'round1A' || currentBattle.stage === 'round1B') delay = 10000;
     else if (currentBattle.stage === 'round2A' || currentBattle.stage === 'round2B') delay = 20000;
-    else if (currentBattle.stage === 'finished') {
-      delay = 4000;
-    }
+    else if (currentBattle.stage === 'finished') delay = 4000;
 
     timerRef.current = setTimeout(() => {
       if (currentBattle.stage === 'finished') {
-        // chain into next if queue ready
         tryStartBattle();
       } else {
         proceed();
@@ -121,17 +163,10 @@ export default function useBattleEngine() {
   };
 
   const forceNextStage = () => proceed();
-
   const togglePause = () => {
     setCurrentBattle(b => {
       if (!b) return b;
       const next = { ...b, paused: !b.paused };
-      if (next.paused) {
-        clearTimeout(timerRef.current);
-      } else {
-        // resume logic: just proceed sooner
-        proceed();
-      }
       return next;
     });
   };

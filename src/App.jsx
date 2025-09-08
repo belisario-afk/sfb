@@ -8,6 +8,7 @@ import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import PKCEAuthButton from './components/PKCEAuthButton.jsx';
 import VoteBars from './components/VoteBars.jsx';
+import AudioUnlockButton from './components/AudioUnlockButton.jsx';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const Hotkeys = () => {
@@ -58,10 +59,13 @@ const CoreApp = () => {
       center={
         <>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'0.5rem'}}>
-            <div style={{display:'flex', gap:'0.5rem', alignItems:'center'}}>
+            <div style={{display:'flex', gap:'0.5rem', alignItems:'center', flexWrap:'wrap'}}>
               <img src="./logo.svg" alt="Logo" height={34} />
               <span className="status-pill">{chatMode.toUpperCase()}</span>
-              {authState?.accessToken ? <span className="status-pill" style={{background:'#233642'}}>Spotify OK</span> : <span className="status-pill" style={{background:'#45222f'}}>No Spotify</span>}
+              {authState?.accessToken
+                ? <span className="status-pill" style={{background:'#233642'}}>Spotify OK</span>
+                : <span className="status-pill" style={{background:'#45222f'}}>No Spotify</span>}
+              <AudioUnlockButton />
             </div>
             <div style={{display:'flex', gap:'0.5rem'}}>
               <PKCEAuthButton />
