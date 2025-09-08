@@ -15,7 +15,7 @@ export default function App() {
   const {
     queue,
     addTrack,
-    nextBattle,
+    tryStartBattle,       // use this directly
     forceNextStage,
     togglePause,
     battle,
@@ -34,16 +34,28 @@ export default function App() {
     const h = (e) => {
       const tag = (e.target?.tagName || '').toUpperCase();
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === 'n') nextBattle();
-      else if (e.key === 's') forceNextStage();
-      else if (e.key === 'p') togglePause();
-      else if (e.key === 'q') addDemoPair();
+      if (e.key === 'n') {
+        if (typeof tryStartBattle === 'function') tryStartBattle();
+      } else if (e.key === 's') {
+        forceNextStage();
+      } else if (e.key === 'p') {
+        togglePause();
+      } else if (e.key === 'q') {
+        addDemoPair();
+      }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [nextBattle, forceNextStage, togglePause, addDemoPair]);
+  }, [tryStartBattle, forceNextStage, togglePause, addDemoPair]);
 
-  const startBattle = useCallback(() => nextBattle(), [nextBattle]);
+  const startBattle = useCallback(() => {
+    if (typeof tryStartBattle === 'function') {
+      tryStartBattle();
+    } else {
+      console.warn('[App] tryStartBattle not available');
+    }
+  }, [tryStartBattle]);
+
   const openSearch = () => setModalOpen(true);
   const closeSearch = () => setModalOpen(false);
 
@@ -54,11 +66,38 @@ export default function App() {
     if (!battle) return 'Ready';
     const s = battle.stage;
     if (s === 'finished') return 'Winner';
-    if (s.startsWith('vote')) return 'Voting';
-    if (s.includes('r1')) return 'Round 1';
-    if (s.includes('r2')) return 'Round 2';
-    return s;
+    if (s?.startsWith?.('vote')) return 'Voting';
+    if (s?.includes?.('r1')) return 'Round 1';
+    if (s?.includes?.('r2')) return 'Round 2';
+    return s || 'Active';
   }, [battle]);
+
+  // Try to read the current left/right tracks to show "Requested by"
+  function getBattleTracks(b) {
+    if (!b) return { left: null, right: null };
+    // Common shapes to probe
+    const candidates = [
+      // direct
+      { left: b.a, right: b.b },
+      // nested track
+      { left: b.a?.track, right: b.b?.track },
+      { left: b.left?.track, right: b.right?.track },
+      // alt keys
+      { left: b.left, right: b.right },
+      { left: b.trackA, right: b.trackB }
+    ];
+    for (const c of candidates) {
+      const L = c.left; const R = c.right;
+      if (L && R && (L.name || L.album) && (R.name || R.album)) {
+        return { left: L, right: R };
+      }
+    }
+    return { left: null, right: null };
+  }
+  const { left: leftTrack, right: rightTrack } = getBattleTracks(battle);
+
+  const requesterLeft = leftTrack?._requestedBy?.name || leftTrack?._requestedBy?.username || '';
+  const requesterRight = rightTrack?._requestedBy?.name || rightTrack?._requestedBy?.username || '';
 
   return (
     <div className="app-root">
@@ -67,7 +106,7 @@ export default function App() {
           mode={
             !battle ? 'idle'
             : battle.stage === 'finished' ? 'finale'
-            : battle.stage.startsWith('vote') ? 'vote'
+            : battle.stage?.startsWith?.('vote') ? 'vote'
             : 'play'
           }
         />
@@ -98,9 +137,50 @@ export default function App() {
             </div>
           </div>
 
-          <div className="arena-wrapper">
+          <div className="arena-wrapper" style={{ position: 'relative' }}>
             <NeoArena />
             <VoteOverlay />
+
+            {/* Requested-by badges overlay */}
+            {battle && (requesterLeft || requesterRight) && (
+              <div style={{
+                position: 'absolute',
+                top: '12px',
+                left: 0,
+                right: 0,
+                display: 'flex',
+                justifyContent: 'space-between',
+                padding: '0 24px',
+                pointerEvents: 'none',
+                zIndex: 5
+              }}>
+                <div style={{
+                  background: 'rgba(0,0,0,0.45)',
+                  color: '#fff',
+                  borderRadius: '999px',
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  minWidth: '120px',
+                  textAlign: 'left',
+                  backdropFilter: 'blur(6px)'
+                }}>
+                  {requesterLeft ? `Requested by ${requesterLeft}` : ''}
+                </div>
+                <div style={{
+                  background: 'rgba(0,0,0,0.45)',
+                  color: '#fff',
+                  borderRadius: '999px',
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  minWidth: '120px',
+                  textAlign: 'right',
+                  backdropFilter: 'blur(6px)'
+                }}>
+                  {requesterRight ? `Requested by ${requesterRight}` : ''}
+                </div>
+              </div>
+            )}
+
             {battle && (
               <div className="scoreboard glass-surface">
                 <div className="score left">
@@ -126,7 +206,7 @@ export default function App() {
                 </span>
               )}
               {battle.paused && <span className="info-pill tag-paused">Paused</span>}
-              {battle.stage?.startsWith('vote') && battle.voteEndsAt && (
+              {battle.stage?.startsWith?.('vote') && battle.voteEndsAt && (
                 <span className="info-pill tag-vote">
                   {Math.max(0, Math.ceil((battle.voteEndsAt - Date.now()) / 1000))}s
                 </span>
@@ -188,6 +268,7 @@ function QueueView({ queue }) {
       <div className="queue-title">Queue ({queue.length})</div>
       {queue.map((t, i) => {
         const img = t.album?.images?.[2]?.url || t.album?.images?.[0]?.url;
+        const requestedBy = t._requestedBy?.name || t._requestedBy?.username || '';
         return (
           <div key={t.id || i} className="queue-row">
             <div className="queue-art">
@@ -198,6 +279,9 @@ function QueueView({ queue }) {
               <div className="queue-artists">
                 {(t.artists || []).map(a => a.name).join(', ')}
               </div>
+              {requestedBy && (
+                <div className="queue-requester">Requested by {requestedBy}</div>
+              )}
             </div>
             {t._noPreview && <span className="queue-badge">no preview</span>}
           </div>
