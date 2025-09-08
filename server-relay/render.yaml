@@ -6,9 +6,10 @@ services:
     plan: free
     buildCommand: "npm install"
     startCommand: "npm start"
-    autoDeploy: true
     envVars:
       - key: TIKTOK_USERNAME
         value: lmohss
       - key: LOG_LEVEL
         value: info
+      - key: NODE_VERSION
+        value: 20

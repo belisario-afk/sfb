@@ -1,15 +1,21 @@
-import express from 'express';
-import http from 'http';
-import cors from 'cors';
-import { WebSocketServer } from 'ws';
-import { initTikTokRelay } from './tiktokRelay.js';
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const { WebSocketServer } = require('ws');
+const { initTikTokRelay } = require('./tiktokRelay');
 
 const PORT = process.env.PORT || 4000;
+
 const app = express();
 app.use(cors());
 
-app.get('/', (req, res) => {
-  res.json({ status:'ok', service:'sfb-relay', tiktok: process.env.TIKTOK_USERNAME });
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'sfb-relay',
+    tiktok: process.env.TIKTOK_USERNAME || 'NOT_SET',
+    uptime_sec: process.uptime()
+  });
 });
 
 const server = http.createServer(app);
@@ -19,10 +25,11 @@ const clients = new Set();
 
 wss.on('connection', (socket) => {
   clients.add(socket);
-  console.log('[Relay] client connected, total:', clients.size);
+  console.log('[Relay] Client connected. Total:', clients.size);
+
   socket.on('close', () => {
     clients.delete(socket);
-    console.log('[Relay] client disconnected, total:', clients.size);
+    console.log('[Relay] Client disconnected. Total:', clients.size);
   });
 });
 
@@ -30,25 +37,29 @@ function broadcast(obj) {
   const data = JSON.stringify(obj);
   for (const c of clients) {
     if (c.readyState === 1) {
-      c.send(data);
+      try {
+        c.send(data);
+      } catch (e) {
+        console.warn('[Relay] Send error:', e.message);
+      }
     }
   }
 }
 
-// Initialize TikTok ingestion
 initTikTokRelay({
   username: process.env.TIKTOK_USERNAME || 'lmohss',
   logLevel: process.env.LOG_LEVEL || 'info',
   onChat: (msg) => {
+    if (!msg?.comment) return;
     broadcast({
       type: 'chat',
       username: msg.userUniqueId || msg.nickname || 'unknown',
-      message: msg.comment || '',
+      message: msg.comment,
       timestamp: Date.now()
     });
   }
 });
 
 server.listen(PORT, () => {
-  console.log('[Relay] Listening on', PORT);
+  console.log('[Relay] Listening on port', PORT);
 });
