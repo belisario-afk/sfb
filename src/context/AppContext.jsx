@@ -56,6 +56,47 @@ function buildDemoTracks() {
   ];
 }
 
+/* --------- Helper: parse !battle messages into a clean search query --------- */
+function extractBattleQuery(rawMessage) {
+  if (!rawMessage) return null;
+  // Normalize whitespace and remove control chars
+  let s = String(rawMessage).replace(/\s+/g, ' ').trim();
+
+  // Ensure it starts with !battle (case-insensitive)
+  const m = s.match(/^\s*!battle\s+(.+)$/i);
+  if (!m) return null;
+  s = m[1];
+
+  // Remove URLs if any slipped through
+  s = s.replace(/https?:\/\/\S+/gi, ' ').replace(/\s+/g, ' ').trim();
+
+  // Remove emojis and other symbols that can confuse search (keep letters, numbers, common punctuation)
+  s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
+
+  // Common patterns: "Title - Artist", "Title by Artist"
+  const byMatch = s.match(/^(.+?)\s+by\s+(.+)$/i);
+  if (byMatch) {
+    const title = byMatch[1].trim();
+    const artist = byMatch[2].trim();
+    s = `${title} ${artist}`;
+  } else {
+    const dashMatch = s.match(/^(.+?)\s*[-–—]\s*(.+)$/);
+    if (dashMatch) {
+      const title = dashMatch[1].trim();
+      const artist = dashMatch[2].trim();
+      s = `${title} ${artist}`;
+    }
+  }
+
+  // Strip surrounding quotes if present
+  s = s.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim();
+
+  // Limit length for sanity
+  if (s.length > 120) s = s.slice(0, 120);
+
+  return s || null;
+}
+
 export function AppProvider({ children }) {
   const [spotifyClientId, setSpotifyClientIdState] = useState(
     localStorage.getItem('customSpotifyClientId') ||
@@ -266,7 +307,7 @@ export function AppProvider({ children }) {
       t = setTimeout(loop, 60000);
     }
     loop();
-  return () => {
+    return () => {
       stop = true;
       clearTimeout(t);
     };
@@ -283,12 +324,11 @@ export function AppProvider({ children }) {
       if (lower.startsWith('!vote ')) {
         const side = lower.split(/\s+/)[1];
         if (side === 'a' || side === 'b') {
-          // Use stable unique id when available for one-vote-per-viewer rules
           const voterId = msg.userId || msg.username || msg.displayName || 'anon';
           vote(side, voterId);
         }
       } else if (lower.startsWith('!battle ')) {
-        const q = raw.slice('!battle '.length).trim();
+        const q = extractBattleQuery(raw);
         if (q) addTopTrackByQuery(q);
       }
     };
@@ -299,7 +339,7 @@ export function AppProvider({ children }) {
   const addTopTrackByQuery = useCallback(
     async (query) => {
       if (!authState?.accessToken) {
-        console.warn('[AddTrack] Need Spotify auth for search.');
+        console.warn('[AddTrack] Need Spotify auth for search. Ignoring:', query);
         return;
       }
       const top = await searchTopTrackByQuery(authState.accessToken, query);

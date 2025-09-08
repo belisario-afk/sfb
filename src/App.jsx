@@ -64,7 +64,6 @@ export default function App() {
     <div className="app-root">
       {visualFxEnabled && !reducedMotion && (
         <ThreeBackdrop
-          // Scene styling reacts to stage for color mood
           mode={
             !battle ? 'idle'
             : battle.stage === 'finished' ? 'finale'
@@ -73,8 +72,7 @@ export default function App() {
           }
         />
       )}
-      {/* Fallback particles if Three.js fails or user toggles off later */}
-      {visualFxEnabled && (reducedMotion) && <ParticleField />}
+      {visualFxEnabled && reducedMotion && <ParticleField />}
 
       <div className="app-grid">
         {/* Left Column */}
@@ -156,7 +154,7 @@ export default function App() {
               </div>
             </div>
             <div className="chat-footer">
-              Commands: !battle &lt;query&gt; | !vote A/B
+              Commands: !battle Song Name Artist | !vote A/B
             </div>
           </div>
         </div>
@@ -181,7 +179,7 @@ function QueueView({ queue }) {
   if (!queue?.length) {
     return (
       <div className="queue-empty glass-soft">
-        Queue empty (use !battle or Search).
+        Queue empty (use !battle Song Name Artist or Search).
       </div>
     );
   }

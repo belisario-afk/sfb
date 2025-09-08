@@ -160,7 +160,7 @@ export default function SettingsPanel() {
           </div>
         </div>
         <div className="hint-text">
-          Relay mode connects to your Node server that reads TikTok Live chat and streams messages (with avatar/name) to this app.
+          Viewers request songs with: <code>!battle Song Name Artist</code> or <code>!battle Song Name - Artist</code> or <code>!battle Song Name by Artist</code>.
         </div>
       </section>
 
@@ -202,7 +202,7 @@ export default function SettingsPanel() {
       <section className="settings-block">
         <h4>Help</h4>
         <ul className="help-list">
-          <li><code>!battle &lt;query&gt;</code> queue track</li>
+          <li><code>!battle Song Name Artist</code> (or <code>Title - Artist</code>, <code>Title by Artist</code>)</li>
           <li><code>!vote A</code> / <code>!vote B</code> during voting</li>
           <li>Keys: n(next) s(skip) p(pause) q(demo)</li>
         </ul>
