@@ -7,6 +7,29 @@ export default function BattleArena() {
   const arenaRef = useRef(null);
   useParallaxTilt(arenaRef, visualFxEnabled && !reducedMotion);
 
+  // IMPORTANT: Always call hooks (like useMemo) before any conditional return to avoid React hook order errors.
+  const activeSide = useMemo(() => {
+    if (!battle) return null;
+    switch (battle.stage) {
+      case 'r1A_play': return 'a';
+      case 'r1B_play': return 'b';
+      case 'r2A_play': return 'a';
+      case 'r2B_play': return 'b';
+      default: return null;
+    }
+  }, [battle]);
+
+  let winner = null;
+  let loser = null;
+  let votesA = 0;
+  let votesB = 0;
+  if (battle) {
+    winner = battle.stage === 'finished' ? battle.winner : null;
+    loser = winner ? (winner === 'a' ? 'b' : 'a') : null;
+    votesA = battle.voteTotals?.a || 0;
+    votesB = battle.voteTotals?.b || 0;
+  }
+
   if (!battle) {
     return (
       <div className="battle-arena glass-surface" ref={arenaRef}>
@@ -17,29 +40,16 @@ export default function BattleArena() {
     );
   }
 
-  const activeSide = useMemo(() => {
-    switch (battle.stage) {
-      case 'r1A_play': return 'a';
-      case 'r1B_play': return 'b';
-      case 'r2A_play': return 'a';
-      case 'r2B_play': return 'b';
-      default: return null;
-    }
-  }, [battle.stage]);
-
-  const winner = battle.stage === 'finished' ? battle.winner : null;
-  const loser = winner ? (winner === 'a' ? 'b' : 'a') : null;
-  const votesA = battle.voteTotals?.a || 0;
-  const votesB = battle.voteTotals?.b || 0;
-
   return (
     <div className="battle-arena glass-surface depth-layer" ref={arenaRef}>
-      <div className={[
-        'arena-bg',
-        activeSide ? `bg-active-${activeSide}` : '',
-        winner ? 'bg-finale' : '',
-        battle.stage.startsWith('vote') ? 'bg-vote' : ''
-      ].join(' ')} />
+      <div
+        className={[
+          'arena-bg',
+          activeSide ? `bg-active-${activeSide}` : '',
+          winner ? 'bg-finale' : '',
+          battle.stage.startsWith('vote') ? 'bg-vote' : ''
+        ].join(' ')}
+      />
       <div className="arena-gradient-overlay" />
       <div className="album-side left">
         <AlbumCard
