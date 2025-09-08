@@ -30,7 +30,11 @@ export default function SettingsPanel() {
     togglePause,
     battle,
 
-    spotifyPlayer
+    spotifyPlayer,
+    visualFxEnabled,
+    reducedMotion,
+    toggleVisualFx,
+    toggleReducedMotion
   } = useAppContext();
 
   const [localClientId, setLocalClientId] = useState(spotifyClientId);
@@ -58,163 +62,135 @@ export default function SettingsPanel() {
   const votesB = battle?.voteTotals?.b || 0;
 
   return (
-    <div className="panel" style={{flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:'1rem'}}>
+    <div className="panel panel-elevated" style={{flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:'1rem'}}>
       <h3 style={{marginTop:0}}>Settings</h3>
 
-      <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Spotify Auth</h4>
-        <div style={{fontSize:'0.6rem', lineHeight:'0.9rem'}}>
-          <div>Status: <strong>{scopeStatus()}</strong></div>
-          {authError && (
-            <div style={{color:'#ff6b6b', fontSize:'0.55rem', marginTop:'0.25rem'}}>
-              {authError}
-            </div>
+      <section className="settings-block">
+        <h4>Spotify Auth</h4>
+        <div className="kv">
+          <div className="kv-row"><span>Status</span><span>{scopeStatus()}</span></div>
+          {authError && <div className="error-text">{authError}</div>}
+        </div>
+        <div className="btn-row">
+          {!authState && (
+            <button className="btn-outline" onClick={beginSpotifyAuth} disabled={authChecking || !spotifyClientId}>
+              {authChecking ? 'Authorizing...' : 'Login Spotify'}
+            </button>
           )}
-          <div style={{marginTop:'0.4rem', display:'flex', flexWrap:'wrap', gap:'0.4rem'}}>
-            {!authState && (
-              <button className="btn-outline" onClick={beginSpotifyAuth} disabled={authChecking || !spotifyClientId}>
-                {authChecking ? 'Authorizing...' : 'Login Spotify'}
-              </button>
-            )}
-            {authState && !hasScopes && (
-              <button className="btn-outline" onClick={beginSpotifyAuth} disabled={authChecking}>
-                Re-Auth (Add Scopes)
-              </button>
-            )}
-            {authState && (
-              <button className="btn-outline" onClick={logoutSpotify}>
-                Logout
-              </button>
-            )}
-          </div>
+          {authState && !hasScopes && (
+            <button className="btn-outline" onClick={beginSpotifyAuth} disabled={authChecking}>
+              Re-Auth (Scopes)
+            </button>
+          )}
           {authState && (
-            <div style={{marginTop:'0.5rem'}}>
-              <div style={{fontSize:'0.55rem', opacity:0.8, marginBottom:'0.25rem'}}>Granted Scopes:</div>
-              <div style={{display:'flex', flexWrap:'wrap', gap:'4px'}}>
-                {grantedScopes.map(s => {
-                  const ok = requiredScopes.includes(s);
-                  return (
-                    <span
-                      key={s}
-                      style={{
-                        background: ok ? '#203a2f' : '#27313a',
-                        fontSize:'0.55rem',
-                        padding:'2px 6px',
-                        borderRadius:4
-                      }}
-                    >{s}</span>
-                  );
-                })}
-              </div>
-              {missingScopes.length > 0 && (
-                <div style={{marginTop:'0.4rem'}}>
-                  <div style={{fontSize:'0.55rem', opacity:0.75, marginBottom:'0.2rem'}}>Missing:</div>
-                  <div style={{display:'flex', flexWrap:'wrap', gap:'4px'}}>
-                    {missingScopes.map(s => (
-                      <span key={s} style={{
-                        background:'#45222f',
-                        fontSize:'0.55rem',
-                        padding:'2px 6px',
-                        borderRadius:4
-                      }}>{s}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <button className="btn-outline" onClick={logoutSpotify}>
+              Logout
+            </button>
           )}
         </div>
-      </section>
-
-      <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Playback & Voting</h4>
-        <div style={{fontSize:'0.6rem', lineHeight:'0.95rem'}}>
-          <div>Mode: <strong>{PLAYBACK_MODE}</strong></div>
-          <div>Round 1 Segments: {ROUND1_SEGMENT_MS/1000}s each</div>
-          <div>Round 2 Segments: {ROUND2_SEGMENT_MS/1000}s each</div>
-          <div>Vote Window: {VOTE_WINDOW_MS/1000}s (two phases)</div>
-          <div>Voting Rule: {VOTING_RULE}</div>
-        </div>
-        {PLAYBACK_MODE === 'FULL' && (
-          <div style={{marginTop:'0.55rem', fontSize:'0.6rem', lineHeight:'0.95rem'}}>
-            <div>Player Status: <strong>{spotifyPlayer?.status}</strong></div>
-            <div>Device ID: {spotifyPlayer?.deviceId || '—'}</div>
-            {spotifyPlayer?.error && (
-              <div style={{color:'#ff6b6b', fontSize:'0.55rem', marginTop:'0.25rem'}}>
-                {spotifyPlayer.error}
-              </div>
-            )}
-            {!spotifyPlayer?.hasStreamingScope && (
-              <div style={{color:'#fbbf24', fontSize:'0.55rem', marginTop:'0.3rem'}}>
-                Missing streaming / playback scopes. Re-auth needed.
-              </div>
+        {authState && (
+          <div style={{marginTop:'0.6rem'}}>
+            <div className="sub-label">Granted Scopes</div>
+            <div className="chips">
+              {grantedScopes.map(s => {
+                const ok = requiredScopes.includes(s);
+                return <span key={s} className={`chip ${ok ? 'ok' : ''}`}>{s}</span>;
+              })}
+            </div>
+            {missingScopes.length > 0 && (
+              <>
+                <div className="sub-label" style={{marginTop:'0.4rem'}}>Missing</div>
+                <div className="chips">
+                  {missingScopes.map(s => <span key={s} className="chip warn">{s}</span>)}
+                </div>
+              </>
             )}
           </div>
         )}
       </section>
 
-      <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Chat Mode</h4>
-        <select
-          className="input"
-          value={chatMode}
-          onChange={e => setChatMode(e.target.value)}
-        >
+      <section className="settings-block">
+        <h4>Playback & Voting</h4>
+        <div className="kv">
+          <div className="kv-row"><span>Mode</span><span>{PLAYBACK_MODE}</span></div>
+          <div className="kv-row"><span>Round1 (each)</span><span>{ROUND1_SEGMENT_MS/1000}s</span></div>
+          <div className="kv-row"><span>Round2 (each)</span><span>{ROUND2_SEGMENT_MS/1000}s</span></div>
+          <div className="kv-row"><span>Vote Window</span><span>{VOTE_WINDOW_MS/1000}s x2</span></div>
+          <div className="kv-row"><span>Voting Rule</span><span>{VOTING_RULE}</span></div>
+        </div>
+        {PLAYBACK_MODE === 'FULL' && (
+          <div className="status-box">
+            <div className="kv-row"><span>Player</span><span>{spotifyPlayer?.status}</span></div>
+            <div className="kv-row"><span>Device</span><span>{spotifyPlayer?.deviceId?.slice(0,8) || '—'}</span></div>
+            {spotifyPlayer?.error && <div className="error-text">{spotifyPlayer.error}</div>}
+          </div>
+        )}
+        {battle && (
+          <div className="mini-stats">
+            Stage: {battle.stage} • A:{votesA} B:{votesB} {battle.winner && <strong style={{color:'#4ade80'}}> Winner: {battle.winner.toUpperCase()}</strong>}
+          </div>
+        )}
+      </section>
+
+      <section className="settings-block">
+        <h4>Visual</h4>
+        <div className="toggle-row">
+          <label className="toggle">
+            <input type="checkbox" checked={visualFxEnabled} onChange={toggleVisualFx} />
+            <span className="toggle-indicator" />
+            <span>Visual FX</span>
+          </label>
+        </div>
+        <div className="toggle-row">
+          <label className="toggle">
+            <input type="checkbox" checked={reducedMotion} onChange={toggleReducedMotion} />
+            <span className="toggle-indicator" />
+            <span>Reduced Motion</span>
+          </label>
+        </div>
+        <div className="hint-text">
+          FX adds particles, parallax & dynamic light. Disable on low-end devices.
+        </div>
+      </section>
+
+      <section className="settings-block">
+        <h4>Chat Mode</h4>
+        <select className="input" value={chatMode} onChange={e=>setChatMode(e.target.value)}>
           <option value="simulation">Simulation</option>
           <option value="relay">Relay (WebSocket)</option>
           <option value="direct">Direct</option>
         </select>
         {chatMode === 'relay' && (
-          <div style={{marginTop:'0.4rem'}}>
-            <input
-              className="input"
-              value={localRelay}
-              onChange={(e)=>setLocalRelay(e.target.value)}
-              placeholder="wss://your-relay/ws"
-            />
+          <div style={{marginTop:'0.5rem'}}>
+            <input className="input" value={localRelay} onChange={e=>setLocalRelay(e.target.value)} placeholder="wss://relay/ws" />
             <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
-            <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-              /ws appended if missing.
-            </div>
           </div>
         )}
       </section>
 
-      <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Spotify Client ID</h4>
-        <input
-          className="input"
-          value={localClientId}
-          onChange={(e)=>setLocalClientId(e.target.value)}
-        />
+      <section className="settings-block">
+        <h4>Spotify Client ID</h4>
+        <input className="input" value={localClientId} onChange={e=>setLocalClientId(e.target.value)} />
         <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveClientId}>Save Client ID</button>
-        <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-          After changing ID: Logout & Re-Login.
-        </div>
+        <div className="hint-text">After changing: Logout & Re-Login.</div>
       </section>
 
-      <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Utilities</h4>
-        <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem'}}>
-          <button className="btn-outline" onClick={addDemoPair}>Add Demo Tracks</button>
+      <section className="settings-block">
+        <h4>Utilities</h4>
+        <div className="btn-row">
+          <button className="btn-outline" onClick={addDemoPair}>Demo Tracks</button>
           <button className="btn-outline" onClick={nextBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
           <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
           <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
         </div>
-        {battle && (
-          <div style={{fontSize:'0.55rem', opacity:0.65, marginTop:'0.4rem'}}>
-            Stage: {battle.stage} | A: {votesA} / B: {votesB}
-            {battle.winner && <span style={{marginLeft:8, color:'#4ade80'}}>Winner: {battle.winner.toUpperCase()}</span>}
-          </div>
-        )}
       </section>
 
-      <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Help</h4>
-        <ul style={{fontSize:'0.65rem', lineHeight:'0.9rem', opacity:0.85, paddingLeft:'1.1rem'}}>
-          <li><code>!battle &lt;query&gt;</code> add top track</li>
-          <li><code>!vote A</code> / <code>!vote B</code> (only during voting windows)</li>
-          <li>Keys: <code>n</code>=next <code>s</code>=skip <code>p</code>=pause <code>q</code>=demo</li>
+      <section className="settings-block">
+        <h4>Help</h4>
+        <ul className="help-list">
+          <li><code>!battle &lt;query&gt;</code> queue track</li>
+          <li><code>!vote A</code> / <code>!vote B</code> during voting</li>
+          <li>Keys: n(next) s(skip) p(pause) q(demo)</li>
         </ul>
       </section>
     </div>

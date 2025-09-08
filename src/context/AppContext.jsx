@@ -1,4 +1,3 @@
-// (Only changes vs previous version: exposes voteRemaining from engine, removed leader concepts)
 import React, {
   createContext,
   useContext,
@@ -24,6 +23,7 @@ import {
 
 import { playPreview } from '../lib/audioManager.js';
 import { PLAYBACK_MODE, isFullPlayback } from '../config/playbackConfig.js';
+import { DEFAULT_FX_ENABLED, DEFAULT_REDUCED_MOTION } from '../config/uiConfig.js';
 
 const AppContext = createContext(null);
 export const useAppContext = () => useContext(AppContext);
@@ -73,6 +73,43 @@ export function AppProvider({ children }) {
     localStorage.getItem('relayUrl') || 'wss://sfb-qrzl.onrender.com/ws'
   );
 
+  // Visual preferences
+  const [visualFxEnabled, setVisualFxEnabled] = useState(
+    (() => {
+      const stored = localStorage.getItem('visualFxEnabled');
+      return stored === null ? DEFAULT_FX_ENABLED : stored === 'true';
+    })()
+  );
+  const [reducedMotion, setReducedMotion] = useState(
+    (() => {
+      const stored = localStorage.getItem('reducedMotion');
+      if (stored !== null) return stored === 'true';
+      // respect system preference initial
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+      return DEFAULT_REDUCED_MOTION;
+    })()
+  );
+
+  const toggleVisualFx = useCallback(() => {
+    setVisualFxEnabled(v => {
+      const nv = !v;
+      localStorage.setItem('visualFxEnabled', nv);
+      return nv;
+    });
+  }, []);
+
+  const toggleReducedMotion = useCallback(() => {
+    setReducedMotion(v => {
+      const nv = !v;
+      localStorage.setItem('reducedMotion', nv);
+      return nv;
+    });
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false';
+  }, [reducedMotion]);
+
   const getAccessToken = useCallback(async () => {
     if (!spotifyClientId) return null;
     try {
@@ -81,7 +118,9 @@ export function AppProvider({ children }) {
     } catch {
       const raw = localStorage.getItem('spotifyTokens');
       if (raw) {
-        try { return JSON.parse(raw).accessToken; } catch {}
+        try {
+          return JSON.parse(raw).accessToken;
+        } catch {}
       }
       return null;
     }
@@ -316,7 +355,13 @@ export function AppProvider({ children }) {
     setModalOpen,
 
     spotifyPlayer,
-    voteRemaining
+    voteRemaining,
+
+    // UI prefs
+    visualFxEnabled,
+    reducedMotion,
+    toggleVisualFx,
+    toggleReducedMotion
   };
 
   return (
