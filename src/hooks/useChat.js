@@ -1,27 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-/**
- * useChat
- * Modes:
- *  - simulation: local ticker, no network (for dev)
- *  - relay: WebSocket to your Node relay that streams TikTok chat
- *
- * Relay protocol:
- *  Client sends on open:
- *    { type: 'subscribe', platform: 'tiktok', room: <tiktokUsername> }
- *  Server broadcasts messages:
- *    {
- *      type: 'chat',
- *      platform: 'tiktok',
- *      userId, username, displayName, avatarUrl, text, ts
- *    }
- */
+// Minimal flexible chat hook that works with your relay output
 export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername }) {
   const listenersRef = useRef(new Set());
   const wsRef = useRef(null);
   const [status, setStatus] = useState('idle');
+  const unknownLoggedRef = useRef(false);
 
-  // Public API: subscribe to incoming messages
   const api = useMemo(() => ({
     subscribe(fn) {
       if (typeof fn !== 'function') return () => {};
@@ -40,10 +25,6 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
       setStatus('error:no-relay');
       return;
     }
-    if (!tiktokUsername) {
-      setStatus('error:no-username');
-      return;
-    }
 
     let closed = false;
     let retryTimer = null;
@@ -56,23 +37,47 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
 
         ws.onopen = () => {
           setStatus('connected');
-          ws.send(JSON.stringify({
-            type: 'subscribe',
-            platform: 'tiktok',
-            room: tiktokUsername
-          }));
+          // Send subscribe (your relay expects this)
+          if (tiktokUsername) {
+            try {
+              ws.send(JSON.stringify({ type: 'subscribe', platform: 'tiktok', room: tiktokUsername }));
+              console.log('[Chat] Sent subscribe for', tiktokUsername);
+            } catch {}
+          }
         };
 
         ws.onmessage = (ev) => {
-          try {
-            const data = JSON.parse(ev.data);
-            if (data?.type === 'chat' && data?.text) {
-              const msg = normalizeMessage(data);
-              for (const fn of listenersRef.current) {
-                try { fn(msg); } catch {}
-              }
+          let data;
+          try { data = JSON.parse(ev.data); } catch {
+            return;
+          }
+
+          // Ignore ACKs and service messages
+          if (data?.type === 'subscribed' || data?.status === 'ok') {
+            console.log('[Chat] Relay message:', data);
+            return;
+          }
+          if (data?.type === 'ping') return;
+
+          // Your relay already sends normalized messages
+          // {type:'chat', platform:'tiktok', text, userId, username, displayName, avatarUrl, ts}
+          if (data?.type === 'chat' && (data?.text || data?.comment || data?.message)) {
+            const msg = {
+              platform: data.platform || 'tiktok',
+              userId: data.userId || '',
+              username: data.username || '',
+              displayName: data.displayName || data.username || 'viewer',
+              avatarUrl: data.avatarUrl || '',
+              text: data.text || data.comment || data.message || '',
+              ts: data.ts || Date.now()
+            };
+            for (const fn of listenersRef.current) {
+              try { fn(msg); } catch {}
             }
-          } catch {}
+          } else if (!unknownLoggedRef.current) {
+            unknownLoggedRef.current = true;
+            console.warn('[Chat] Unknown message shape (once):', data);
+          }
         };
 
         ws.onclose = () => {
@@ -80,9 +85,7 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
           setStatus('disconnected');
           retryTimer = setTimeout(connect, 1500);
         };
-        ws.onerror = () => {
-          // will trigger close
-        };
+        ws.onerror = () => {};
       } catch {
         setStatus('error');
         retryTimer = setTimeout(connect, 2000);
@@ -98,42 +101,27 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
     };
   }, [mode, relayUrl, tiktokUsername]);
 
-  // Simulation messages (dev)
+  // Simple simulation
   useEffect(() => {
     if (mode !== 'simulation') return;
-    let i = 0;
     setStatus('simulation');
-    const names = ['Ava', 'Ben', 'Chloe', 'Dre', 'Eve', 'Finn', 'Gia', 'Hank'];
-    const timer = setInterval(() => {
+    const names = ['Ava','Ben','Chloe','Dre'];
+    let i = 0;
+    const t = setInterval(() => {
       const name = names[i++ % names.length];
-      const text = i % 3 === 0 ? '!vote a' : (i % 5 === 0 ? '!battle daft punk' : 'hello!');
       const msg = {
         platform: 'sim',
-        userId: 'sim_' + name.toLowerCase(),
+        userId: 'sim_' + name,
         username: name.toLowerCase(),
         displayName: name,
-        avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(name)}`,
-        text,
+        avatarUrl: '',
+        text: i % 2 ? '!battle One More Time Daft Punk' : '!vote a',
         ts: Date.now()
       };
-      for (const fn of listenersRef.current) {
-        try { fn(msg); } catch {}
-      }
-    }, 2500);
-    return () => clearInterval(timer);
+      for (const fn of listenersRef.current) { try { fn(msg); } catch {} }
+    }, 3000);
+    return () => clearInterval(t);
   }, [mode]);
 
   return api;
-}
-
-function normalizeMessage(data) {
-  return {
-    platform: data.platform || 'tiktok',
-    userId: data.userId || data.uniqueId || '',
-    username: data.username || data.uniqueId || '',
-    displayName: data.displayName || data.nickname || data.username || 'viewer',
-    avatarUrl: data.avatarUrl || data.profilePictureUrl || '',
-    text: data.text || '',
-    ts: data.ts || Date.now()
-  };
 }

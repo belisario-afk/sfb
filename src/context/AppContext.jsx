@@ -1,26 +1,8 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback
-} from 'react';
-
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import useBattleEngine from '../hooks/useBattleEngine.js';
 import useChat from '../hooks/useChat.js';
 import useSpotifyWebPlayer from '../hooks/useSpotifyWebPlayer.js';
-
-import {
-  startSpotifyAuth,
-  exchangeCodeForToken,
-  ensureFreshToken,
-  loadStoredTokens,
-  searchTopTrackByQuery,
-  getTrackById,
-  hasRequiredScopes,
-  REQUIRED_SCOPES
-} from '../lib/spotify.js';
-
+import { startSpotifyAuth, exchangeCodeForToken, ensureFreshToken, loadStoredTokens, searchTopTrackByQuery, getTrackById, hasRequiredScopes, REQUIRED_SCOPES } from '../lib/spotify.js';
 import { playPreview } from '../lib/audioManager.js';
 import { PLAYBACK_MODE, isFullPlayback } from '../config/playbackConfig.js';
 import { DEFAULT_FX_ENABLED, DEFAULT_REDUCED_MOTION } from '../config/uiConfig.js';
@@ -28,41 +10,11 @@ import { DEFAULT_FX_ENABLED, DEFAULT_REDUCED_MOTION } from '../config/uiConfig.j
 const AppContext = createContext(null);
 export const useAppContext = () => useContext(AppContext);
 
-function parseQueryParams() {
-  const p = new URLSearchParams(window.location.search);
-  const o = {};
-  for (const [k, v] of p.entries()) o[k] = v;
-  return o;
-}
-
-function buildDemoTracks() {
-  return [
-    {
-      id: 'demo-track-a',
-      name: 'Demo Track A',
-      artists: [{ name: 'Demo Artist' }],
-      album: { images: [] },
-      uri: 'spotify:track:0udZHhCi7p1YzMlvI4fXoK',
-      preview_url: null
-    },
-    {
-      id: 'demo-track-b',
-      name: 'Demo Track B',
-      artists: [{ name: 'Demo Artist' }],
-      album: { images: [] },
-      uri: 'spotify:track:1301WleyT98MSxVHPZCA6M',
-      preview_url: null
-    }
-  ];
-}
-
-/* --------- Helper: parse !battle messages into a clean search query --------- */
+// Extract clean search query from a !battle message
 function extractBattleQuery(rawMessage) {
   if (!rawMessage) return null;
-  // Normalize whitespace and remove control chars
   let s = String(rawMessage).replace(/\s+/g, ' ').trim();
 
-  // Ensure it starts with !battle (case-insensitive)
   const m = s.match(/^\s*!battle\s+(.+)$/i);
   if (!m) return null;
   s = m[1];
@@ -70,56 +22,43 @@ function extractBattleQuery(rawMessage) {
   // Remove URLs if any slipped through
   s = s.replace(/https?:\/\/\S+/gi, ' ').replace(/\s+/g, ' ').trim();
 
-  // Remove emojis and other symbols that can confuse search (keep letters, numbers, common punctuation)
+  // Remove common emoji ranges to reduce search noise
   s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
 
-  // Common patterns: "Title - Artist", "Title by Artist"
+  // Normalize “Title by Artist” or “Title - Artist”
   const byMatch = s.match(/^(.+?)\s+by\s+(.+)$/i);
   if (byMatch) {
-    const title = byMatch[1].trim();
-    const artist = byMatch[2].trim();
-    s = `${title} ${artist}`;
+    s = `${byMatch[1].trim()} ${byMatch[2].trim()}`;
   } else {
     const dashMatch = s.match(/^(.+?)\s*[-–—]\s*(.+)$/);
     if (dashMatch) {
-      const title = dashMatch[1].trim();
-      const artist = dashMatch[2].trim();
-      s = `${title} ${artist}`;
+      s = `${dashMatch[1].trim()} ${dashMatch[2].trim()}`;
     }
   }
 
-  // Strip surrounding quotes if present
+  // Strip surrounding quotes
   s = s.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim();
 
-  // Limit length for sanity
   if (s.length > 120) s = s.slice(0, 120);
-
   return s || null;
 }
 
 export function AppProvider({ children }) {
-  const [spotifyClientId, setSpotifyClientIdState] = useState(
+  const [spotifyClientId, setSpotifyClientId] = useState(
     localStorage.getItem('customSpotifyClientId') ||
       import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
       ''
   );
-
   const [authState, setAuthState] = useState(loadStoredTokens());
   const [authError, setAuthError] = useState(null);
   const [authChecking, setAuthChecking] = useState(false);
 
+  const [chatMode, setChatMode] = useState(localStorage.getItem('chatMode') || 'simulation');
+  const [relayUrl, setRelayUrl] = useState(localStorage.getItem('relayUrl') || '');
+  const [tiktokUsername, setTiktokUsername] = useState(localStorage.getItem('tiktokUsername') || '');
+
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Chat / Relay
-  const [chatMode, setChatMode] = useState(localStorage.getItem('chatMode') || 'simulation');
-  const [relayUrl, setRelayUrl] = useState(
-    localStorage.getItem('relayUrl') || 'wss://sfb-qrzl.onrender.com/ws'
-  );
-  const [tiktokUsername, setTiktokUsername] = useState(
-    localStorage.getItem('tiktokUsername') || ''
-  );
-
-  // Visual preferences
   const [visualFxEnabled, setVisualFxEnabled] = useState(
     (() => {
       const stored = localStorage.getItem('visualFxEnabled');
@@ -130,7 +69,7 @@ export function AppProvider({ children }) {
     (() => {
       const stored = localStorage.getItem('reducedMotion');
       if (stored !== null) return stored === 'true';
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+      if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return true;
       return DEFAULT_REDUCED_MOTION;
     })()
   );
@@ -138,35 +77,28 @@ export function AppProvider({ children }) {
   const toggleVisualFx = useCallback(() => {
     setVisualFxEnabled(v => {
       const nv = !v;
-      localStorage.setItem('visualFxEnabled', nv);
+      localStorage.setItem('visualFxEnabled', nv ? 'true' : 'false');
       return nv;
     });
   }, []);
-
   const toggleReducedMotion = useCallback(() => {
     setReducedMotion(v => {
       const nv = !v;
-      localStorage.setItem('reducedMotion', nv);
+      localStorage.setItem('reducedMotion', nv ? 'true' : 'false');
       return nv;
     });
   }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false';
-  }, [reducedMotion]);
 
   const getAccessToken = useCallback(async () => {
     if (!spotifyClientId) return null;
     try {
       const fresh = await ensureFreshToken(spotifyClientId);
-      return fresh?.accessToken;
+      return fresh?.accessToken || null;
     } catch {
-      const raw = localStorage.getItem('spotifyTokens');
-      if (raw) {
-        try {
-          return JSON.parse(raw).accessToken;
-        } catch {}
-      }
+      try {
+        const raw = localStorage.getItem('spotifyTokens');
+        if (raw) return JSON.parse(raw).accessToken || null;
+      } catch {}
       return null;
     }
   }, [spotifyClientId]);
@@ -207,19 +139,83 @@ export function AppProvider({ children }) {
   } = battleEngine;
 
   useEffect(() => {
+    document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false';
+  }, [reducedMotion]);
+
+  useEffect(() => {
     if (isFullPlayback() && spotifyWebPlayer.player) {
       setEngineSpotifyPlayer?.(spotifyWebPlayer.player);
     }
   }, [spotifyWebPlayer.player, setEngineSpotifyPlayer]);
 
-  // Chat hook wired to relay with TikTok username
+  // Relay
   const chat = useChat({
     mode: chatMode,
     relayUrl,
     tiktokUsername
   });
 
-  const normalizeRelay = useCallback((val) => {
+  // Handle chat commands
+  useEffect(() => {
+    if (!chat?.subscribe) return;
+    const handler = async (msg) => {
+      const raw = (msg?.text || '').trim();
+      if (!raw) return;
+
+      const lower = raw.toLowerCase();
+
+      // Votes (only counted during vote stage by the engine)
+      if (lower.startsWith('!vote ')) {
+        const side = lower.split(/\s+/)[1];
+        if (side === 'a' || side === 'b') {
+          const voterId = msg.userId || msg.username || msg.displayName || 'anon';
+          vote(side, voterId);
+          console.log('[ChatCmd] vote', side, 'from', voterId);
+        }
+        return;
+      }
+
+      // Battle request
+      if (lower.startsWith('!battle ')) {
+        const q = extractBattleQuery(raw);
+        console.log('[ChatCmd] battle query parsed:', q, 'from', msg.username || msg.displayName);
+        if (!q) return;
+        await addTopTrackByQuery(q);
+      }
+    };
+    const unsub = chat.subscribe(handler);
+    return () => unsub && unsub();
+  }, [chat, vote, addTrack]);
+
+  // Spotify search -> add top track
+  const addTopTrackByQuery = useCallback(
+    async (query) => {
+      const token = authState?.accessToken;
+      if (!token) {
+        console.warn('[AddTrack] No Spotify auth; cannot search:', query);
+        return;
+      }
+      try {
+        const top = await searchTopTrackByQuery(token, query);
+        if (top) {
+          addTrack(top);
+          console.log('[AddTrack] Added:', top.name, '—', top.artists?.map(a => a.name).join(', '));
+        } else {
+          console.log('[AddTrack] No results for:', query);
+        }
+      } catch (e) {
+        console.warn('[AddTrack] Search failed for:', query, e?.message || e);
+      }
+    },
+    [authState, addTrack]
+  );
+
+  // Persist helpers
+  const setChatModePersist = useCallback((mode) => {
+    localStorage.setItem('chatMode', mode);
+    setChatMode(mode);
+  }, []);
+  const setRelayUrlPersist = useCallback((val) => {
     let v = (val || '').trim();
     if (v && !v.endsWith('/ws')) {
       if (!v.endsWith('/')) v += '/';
@@ -228,29 +224,15 @@ export function AppProvider({ children }) {
     localStorage.setItem('relayUrl', v);
     setRelayUrl(v);
   }, []);
-
-  const updateClientId = useCallback((cid) => {
-    const t = cid.trim();
-    setSpotifyClientIdState(t);
-    localStorage.setItem('customSpotifyClientId', t);
-  }, []);
-
-  const setChatModePersist = useCallback((mode) => {
-    localStorage.setItem('chatMode', mode);
-    setChatMode(mode);
-  }, []);
-
   const setTiktokUsernamePersist = useCallback((name) => {
     const t = (name || '').trim();
     localStorage.setItem('tiktokUsername', t);
     setTiktokUsername(t);
   }, []);
-
-  const logoutSpotify = useCallback(() => {
-    localStorage.removeItem('spotifyTokens');
-    localStorage.removeItem('spotify_code_verifier');
-    setAuthState(null);
-    setAuthError(null);
+  const updateClientId = useCallback((cid) => {
+    const t = cid.trim();
+    setSpotifyClientId(t);
+    localStorage.setItem('customSpotifyClientId', t);
   }, []);
 
   const beginSpotifyAuth = useCallback(() => {
@@ -260,10 +242,18 @@ export function AppProvider({ children }) {
     }
     startSpotifyAuth(spotifyClientId);
   }, [spotifyClientId]);
+  const logoutSpotify = useCallback(() => {
+    localStorage.removeItem('spotifyTokens');
+    localStorage.removeItem('spotify_code_verifier');
+    setAuthState(null);
+    setAuthError(null);
+  }, []);
 
-  // PKCE exchange
+  // PKCE exchange on redirect
   useEffect(() => {
-    const { code, error } = parseQueryParams();
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const error = params.get('error');
     if (error) {
       setAuthError(error);
       return;
@@ -275,10 +265,7 @@ export function AppProvider({ children }) {
           const tokens = await exchangeCodeForToken(code, spotifyClientId);
           setAuthState(tokens);
           setAuthError(null);
-          const clean =
-            window.location.origin +
-            window.location.pathname +
-            window.location.hash;
+          const clean = window.location.origin + window.location.pathname + window.location.hash;
           window.history.replaceState({}, '', clean);
         } catch (e) {
           setAuthError(e.message);
@@ -289,7 +276,7 @@ export function AppProvider({ children }) {
     }
   }, [spotifyClientId]);
 
-  // Token refresh loop
+  // Background token refresh
   useEffect(() => {
     let stop = false;
     let t;
@@ -302,145 +289,50 @@ export function AppProvider({ children }) {
         const fresh = await ensureFreshToken(spotifyClientId);
         if (!stop && fresh) setAuthState(fresh);
       } catch (e) {
-        console.warn('[Auth] refresh error', e);
+        console.warn('[Auth] refresh error', e?.message || e);
       }
       t = setTimeout(loop, 60000);
     }
     loop();
-    return () => {
-      stop = true;
-      clearTimeout(t);
-    };
+    return () => { stop = true; clearTimeout(t); };
   }, [spotifyClientId]);
-
-  // Chat commands from TikTok relay
-  useEffect(() => {
-    if (!chat?.subscribe) return;
-    const handler = (msg) => {
-      const raw = (msg?.text || '').trim();
-      if (!raw) return;
-      const lower = raw.toLowerCase();
-
-      if (lower.startsWith('!vote ')) {
-        const side = lower.split(/\s+/)[1];
-        if (side === 'a' || side === 'b') {
-          const voterId = msg.userId || msg.username || msg.displayName || 'anon';
-          vote(side, voterId);
-        }
-      } else if (lower.startsWith('!battle ')) {
-        const q = extractBattleQuery(raw);
-        if (q) addTopTrackByQuery(q);
-      }
-    };
-    const unsub = chat.subscribe(handler);
-    return () => unsub && unsub();
-  }, [chat, vote, addTrack]);
-
-  const addTopTrackByQuery = useCallback(
-    async (query) => {
-      if (!authState?.accessToken) {
-        console.warn('[AddTrack] Need Spotify auth for search. Ignoring:', query);
-        return;
-      }
-      const top = await searchTopTrackByQuery(authState.accessToken, query);
-      if (top) {
-        addTrack(top);
-        console.log('[AddTrack] Added:', top.name);
-      } else {
-        console.log('[AddTrack] No results for:', query);
-      }
-    },
-    [authState, addTrack]
-  );
-
-  const addTrackById = useCallback(
-    async (id) => {
-      if (!authState?.accessToken) return;
-      const t = await getTrackById(authState.accessToken, id);
-      if (t) addTrack(t);
-    },
-    [authState, addTrack]
-  );
-
-  const addDemoPair = useCallback(() => {
-    addTrackList(buildDemoTracks());
-  }, [addTrackList]);
-
-  const previewTrack = useCallback((track, seconds = 10) => {
-    if (track?.preview_url) {
-      playPreview('TEST', track.preview_url, seconds);
-    } else {
-      console.log('[Preview] No preview_url for', track?.name);
-    }
-  }, []);
-
-  const spotifyPlayer = {
-    mode: PLAYBACK_MODE,
-    ready: spotifyWebPlayer.ready,
-    status: spotifyWebPlayer.status,
-    deviceId: spotifyWebPlayer.deviceId,
-    error: spotifyWebPlayer.error,
-    transferPlayback: spotifyWebPlayer.transferPlayback,
-    reconnect: spotifyWebPlayer.reconnect,
-    hasStreamingScope: hasStreamingScopes
-  };
 
   const value = {
     // Auth
-    authState,
-    authError,
-    authChecking,
-    hasScopes,
-    requiredScopes: REQUIRED_SCOPES,
-    beginSpotifyAuth,
-    logoutSpotify,
+    authState, authError, authChecking, hasScopes, requiredScopes: REQUIRED_SCOPES,
+    beginSpotifyAuth, logoutSpotify,
 
     // Spotify
-    spotifyClientId,
-    setSpotifyClientId: updateClientId,
+    spotifyClientId, setSpotifyClientId: updateClientId,
 
     // Chat / Relay
-    chatMode,
-    setChatMode: setChatModePersist,
-    relayUrl,
-    setRelayUrl: normalizeRelay,
-    tiktokUsername,
-    setTiktokUsername: setTiktokUsernamePersist,
+    chatMode, setChatMode: setChatModePersist,
+    relayUrl, setRelayUrl: setRelayUrlPersist,
+    tiktokUsername, setTiktokUsername: setTiktokUsernamePersist,
     chat,
 
     // Battle
-    queue,
-    battle,
-    tryStartBattle,
-    nextBattle: tryStartBattle,
-    vote,
-    forceNextStage,
-    togglePause,
-    addTrack,
-    addTrackList,
-    addTrackById,
-    addTopTrackByQuery,
-    addDemoPair,
-    previewTrack,
+    queue, battle, tryStartBattle, vote, forceNextStage, togglePause,
+    addTrack, addTrackList, getTrackById,
 
-    // UI / modal
-    modalOpen,
-    setModalOpen,
+    // UI
+    modalOpen, setModalOpen,
 
-    // Player
-    spotifyPlayer,
+    // Player info
+    spotifyPlayer: {
+      mode: PLAYBACK_MODE,
+      ready: spotifyWebPlayer.ready,
+      status: spotifyWebPlayer.status,
+      deviceId: spotifyWebPlayer.deviceId,
+      error: spotifyWebPlayer.error,
+      transferPlayback: spotifyWebPlayer.transferPlayback,
+      reconnect: spotifyWebPlayer.reconnect,
+      hasStreamingScope: hasStreamingScopes
+    },
+
     voteRemaining,
-
-    // Visual prefs
-    visualFxEnabled,
-    reducedMotion,
-    toggleVisualFx,
-    toggleReducedMotion
+    visualFxEnabled, reducedMotion, toggleVisualFx, toggleReducedMotion
   };
 
-  return (
-    <AppContext.Provider value={value}>
-      {children}
-    </AppContext.Provider>
-  );
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

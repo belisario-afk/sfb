@@ -1,8 +1,12 @@
 /**
  * spotify.js
- * (Re-output full for clarity; only add or adjust if needed for player integration)
- * Make sure REQUIRED_SCOPES includes streaming + playback controls for FULL mode.
+ * Helpers for Spotify auth (PKCE), token refresh, scope checks, and track search.
+ *
+ * Recent change:
+ * - searchTopTrackByQuery now hits the Search API directly with limit=1 and throws on non-OK responses.
+ *   This gives clearer errors in the console and avoids fetching unnecessary results.
  */
+
 export const REQUIRED_SCOPES = [
   'user-read-email',
   'user-read-private',
@@ -17,7 +21,7 @@ const CODE_VERIFIER_KEY = 'spotify_code_verifier';
 function randomString(length) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let out = '';
-  for (let i=0;i<length;i++) out += chars.charAt(Math.floor(Math.random()*chars.length));
+  for (let i = 0; i < length; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
   return out;
 }
 
@@ -62,7 +66,7 @@ export async function exchangeCodeForToken(code, clientId) {
 
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
-    headers: { 'Content-Type':'application/x-www-form-urlencoded' },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body
   });
   if (!res.ok) {
@@ -106,8 +110,8 @@ export async function ensureFreshToken(clientId) {
   });
 
   const res = await fetch('https://accounts.spotify.com/api/token', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body
   });
   if (!res.ok) {
@@ -131,16 +135,20 @@ export function hasRequiredScopes(authState) {
   return REQUIRED_SCOPES.every(s => granted.includes(s));
 }
 
-// Simple search helpers
-export async function searchTracks(accessToken, query) {
-  const res = await fetch('https://api.spotify.com/v1/search?' + new URLSearchParams({
-    type: 'track',
-    limit: '10',
-    q: query
-  }), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
+/**
+ * Search helpers
+ * Tip: you can pass a market (e.g., "US") to bias results, but it's optional.
+ */
+
+export async function searchTracks(accessToken, query, { limit = 10, market } = {}) {
+  const url = new URL('https://api.spotify.com/v1/search');
+  url.searchParams.set('type', 'track');
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('q', query);
+  if (market) url.searchParams.set('market', market);
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` }
   });
   if (!res.ok) {
     console.warn('[Spotify] search error', res.status);
@@ -150,13 +158,31 @@ export async function searchTracks(accessToken, query) {
   return json.tracks?.items || [];
 }
 
-export async function searchTopTrackByQuery(accessToken, query) {
-  const items = await searchTracks(accessToken, query);
-  return items?.[0] || null;
+/**
+ * Recent change: direct, single-item search with clear errors.
+ * Returns the top track for a free-text query, or null if none found.
+ */
+export async function searchTopTrackByQuery(accessToken, query, { market } = {}) {
+  const url = new URL('https://api.spotify.com/v1/search');
+  url.searchParams.set('q', query);
+  url.searchParams.set('type', 'track');
+  url.searchParams.set('limit', '1');
+  if (market) url.searchParams.set('market', market);
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Spotify search failed ${res.status}: ${text}`);
+  }
+  const data = await res.json();
+  const item = data?.tracks?.items?.[0];
+  return item || null;
 }
 
 export async function getTrackById(accessToken, id) {
-  const res = await fetch('https://api.spotify.com/v1/tracks/' + id, {
+  const res = await fetch('https://api.spotify.com/v1/tracks/' + encodeURIComponent(id), {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
   if (!res.ok) return null;
