@@ -1,3 +1,4 @@
+// (Only changes vs previous version: exposes voteRemaining from engine, removed leader concepts)
 import React, {
   createContext,
   useContext,
@@ -80,9 +81,7 @@ export function AppProvider({ children }) {
     } catch {
       const raw = localStorage.getItem('spotifyTokens');
       if (raw) {
-        try {
-          return JSON.parse(raw).accessToken;
-        } catch {}
+        try { return JSON.parse(raw).accessToken; } catch {}
       }
       return null;
     }
@@ -119,7 +118,8 @@ export function AppProvider({ children }) {
     vote,
     forceNextStage,
     togglePause,
-    setSpotifyPlayer: setEngineSpotifyPlayer
+    setSpotifyPlayer: setEngineSpotifyPlayer,
+    voteRemaining
   } = battleEngine;
 
   useEffect(() => {
@@ -315,7 +315,8 @@ export function AppProvider({ children }) {
     modalOpen,
     setModalOpen,
 
-    spotifyPlayer
+    spotifyPlayer,
+    voteRemaining
   };
 
   return (

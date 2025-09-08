@@ -22,7 +22,6 @@
   --font-stack: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
   font-synthesis: none;
 
-  /* Audio reactive (optional – will be updated via JS if you add analyser) */
   --energy: 0.35;
   --energy-glow: 0.55;
 }
@@ -248,22 +247,18 @@ textarea:focus {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Buttons inside modal header override */
 .modal-panel h3 {
   font-size: 0.9rem;
   margin: 0;
   letter-spacing: 0.5px;
 }
 
-/* Search list highlight (if not using inline background) */
 .search-row.highlight {
   background: rgba(255,255,255,0.08);
 }
 
 /* ========== Utility ========== */
-.fade {
-  opacity: 0.6;
-}
+.fade { opacity: 0.6; }
 
 .badge {
   font-size: 0.55rem;
@@ -276,17 +271,13 @@ textarea:focus {
   gap: 4px;
 }
 
-.flex {
-  display: flex;
-}
-.col {
-  flex-direction: column;
-}
+.flex { display: flex; }
+.col { flex-direction: column; }
 .gap-xs { gap: 0.25rem; }
 .gap-s { gap: 0.5rem; }
 .gap-m { gap: 0.75rem; }
 
-/* ========== Battle/Queue (legacy helpers) ========== */
+/* ========== Battle/Queue Legacy Helpers ========== */
 .battle-card {
   background: linear-gradient(135deg, #17212b, #131b23);
   border: 1px solid var(--border-soft);
@@ -445,9 +436,7 @@ textarea:focus {
   opacity: 0;
   transition: opacity .4s;
 }
-.album-card.is-active .album-glow {
-  opacity: 1;
-}
+.album-card.is-active .album-glow { opacity: 1; }
 
 .album-meta {
   margin-top: 0.55rem;
@@ -480,13 +469,6 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 2px;
-}
-
-.album-card.is-leader:not(.is-winner) .album-inner {
-  box-shadow:
-    0 0 0 1px rgba(255,255,255,0.06),
-    0 0 18px -2px rgba(0,255,160,0.28);
-  border-color: rgba(0,255,150,0.35);
 }
 
 .album-card.is-winner .album-inner {
@@ -583,34 +565,166 @@ textarea:focus {
   opacity: 0.7;
 }
 
-/* Audio reactive (optional: if JS updates --energy) */
+/* Audio reactive placeholder */
 .battle-arena .arena-bg {
   filter: brightness(calc(0.9 + var(--energy) * 0.5)) saturate(calc(1 + var(--energy) * 0.4));
 }
 
-/* Responsive tweaks for arena */
 @media (max-width: 900px) {
-  .album-card {
-    width: 160px;
-  }
-  .neon-vs {
-    width: 150px;
-    height: 150px;
-  }
-  .vs-text {
-    font-size: 2.4rem;
-  }
+  .album-card { width: 160px; }
+  .neon-vs { width: 150px; height: 150px; }
+  .vs-text { font-size: 2.4rem; }
 }
 
 @media (max-width: 600px) {
-  .album-card {
-    width: 140px;
-  }
-  .neon-vs {
-    width: 130px;
-    height: 130px;
-  }
-  .vs-text {
-    font-size: 2rem;
-  }
+  .album-card { width: 140px; }
+  .neon-vs { width: 130px; height: 130px; }
+  .vs-text { font-size: 2rem; }
+}
+
+/* ========= Voting Overlay ========= */
+.vote-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.58);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  animation: voteFadeIn .35s ease;
+  font-family: var(--font-stack);
+}
+
+@keyframes voteFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.vote-panel {
+  width: min(560px, 92%);
+  background: linear-gradient(145deg,#16242d,#0f181f 55%, #142029);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 18px;
+  padding: 1.3rem 1.2rem 1.5rem;
+  box-shadow: 0 8px 36px -10px rgba(0,0,0,0.65);
+  position: relative;
+  overflow: hidden;
+  animation: votePop .55s cubic-bezier(.25,.9,.35,1);
+}
+
+@keyframes votePop {
+  0% { transform: scale(.85) translateY(18px); opacity:0; }
+  60% { opacity:1; }
+  100% { transform: scale(1) translateY(0); opacity:1; }
+}
+
+.vote-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+
+.vote-phase {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background: linear-gradient(90deg,#4ade80,#58c7ff,#ff6bd5);
+  -webkit-background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 6px rgba(0,255,255,0.35));
+}
+
+.vote-instruction {
+  font-size: 0.6rem;
+  opacity: 0.8;
+  letter-spacing: 0.6px;
+}
+
+.vote-countdown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2.2rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.95rem;
+}
+
+.vote-ring {
+  width: 140px;
+  height: 140px;
+}
+
+.vote-ring-bg {
+  fill: none;
+  stroke: rgba(255,255,255,0.08);
+  stroke-width: 6;
+}
+
+.vote-ring-fg {
+  fill: none;
+  stroke: #4ade80;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 60px 60px;
+  transition: stroke-dashoffset .8s cubic-bezier(.65,.05,.36,1);
+  filter: drop-shadow(0 0 4px rgba(0,255,140,0.55));
+}
+
+.vote-ring-text {
+  font-size: 20px;
+  font-weight: 600;
+  fill: #e9fdf5;
+  letter-spacing: 1px;
+}
+
+.vote-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.vote-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  min-width: 130px;
+  justify-content: space-between;
+}
+
+.vote-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #fff;
+}
+
+.vote-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #4ade80;
+  min-width: 32px;
+  text-align: right;
+}
+
+.vote-footer {
+  font-size: 0.55rem;
+  opacity: 0.7;
+  text-align: center;
+  letter-spacing: 0.4px;
+}
+
+@media (max-width:600px) {
+  .vote-countdown { gap: 1.2rem; }
+  .vote-ring { width: 120px; height: 120px; }
+  .vote-ring-text { font-size: 18px; }
 }

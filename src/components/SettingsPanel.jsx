@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
-import { PLAYBACK_MODE, SEGMENT_DURATIONS, ENFORCE_SEGMENT_PAUSE } from '../config/playbackConfig.js';
+import {
+  PLAYBACK_MODE,
+  ROUND1_SEGMENT_MS,
+  ROUND2_SEGMENT_MS,
+  VOTE_WINDOW_MS,
+  VOTING_RULE
+} from '../config/playbackConfig.js';
 
 export default function SettingsPanel() {
   const {
@@ -48,8 +54,8 @@ export default function SettingsPanel() {
   const grantedScopes = authState?.scope ? authState.scope.split(/\s+/) : [];
   const missingScopes = requiredScopes.filter(s => !grantedScopes.includes(s));
 
-  const votesA = battle?.voteCounts?.a ?? battle?.votes?.a?.size ?? 0;
-  const votesB = battle?.voteCounts?.b ?? battle?.votes?.b?.size ?? 0;
+  const votesA = battle?.voteTotals?.a || 0;
+  const votesB = battle?.voteTotals?.b || 0;
 
   return (
     <div className="panel" style={{flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:'1rem'}}>
@@ -121,15 +127,16 @@ export default function SettingsPanel() {
       </section>
 
       <section>
-        <h4 style={{margin:'0 0 0.4rem'}}>Playback</h4>
+        <h4 style={{margin:'0 0 0.4rem'}}>Playback & Voting</h4>
         <div style={{fontSize:'0.6rem', lineHeight:'0.95rem'}}>
           <div>Mode: <strong>{PLAYBACK_MODE}</strong></div>
-          <div>Round1 Segment: {SEGMENT_DURATIONS.round1/1000}s</div>
-            <div>Round2 Segment: {SEGMENT_DURATIONS.round2/1000}s</div>
-          <div>Segment Pause: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
+          <div>Round 1 Segments: {ROUND1_SEGMENT_MS/1000}s each</div>
+          <div>Round 2 Segments: {ROUND2_SEGMENT_MS/1000}s each</div>
+          <div>Vote Window: {VOTE_WINDOW_MS/1000}s (two phases)</div>
+          <div>Voting Rule: {VOTING_RULE}</div>
         </div>
         {PLAYBACK_MODE === 'FULL' && (
-          <div style={{marginTop:'0.5rem', fontSize:'0.6rem', lineHeight:'0.9rem'}}>
+          <div style={{marginTop:'0.55rem', fontSize:'0.6rem', lineHeight:'0.95rem'}}>
             <div>Player Status: <strong>{spotifyPlayer?.status}</strong></div>
             <div>Device ID: {spotifyPlayer?.deviceId || '—'}</div>
             {spotifyPlayer?.error && (
@@ -142,14 +149,6 @@ export default function SettingsPanel() {
                 Missing streaming / playback scopes. Re-auth needed.
               </div>
             )}
-            <div style={{fontSize:'0.5rem', opacity:0.55, marginTop:'0.45rem'}}>
-              If silent: open Spotify app once, then press Transfer Playback in Playback section (below) or reconnect.
-            </div>
-          </div>
-        )}
-        {PLAYBACK_MODE !== 'FULL' && (
-          <div style={{marginTop:'0.5rem', fontSize:'0.55rem', opacity:0.7}}>
-            Using preview fallback mode.
           </div>
         )}
       </section>
@@ -204,7 +203,7 @@ export default function SettingsPanel() {
         </div>
         {battle && (
           <div style={{fontSize:'0.55rem', opacity:0.65, marginTop:'0.4rem'}}>
-            Stage: {battle.stage} | Votes A: {votesA} / B: {votesB}
+            Stage: {battle.stage} | A: {votesA} / B: {votesB}
             {battle.winner && <span style={{marginLeft:8, color:'#4ade80'}}>Winner: {battle.winner.toUpperCase()}</span>}
           </div>
         )}
@@ -214,8 +213,8 @@ export default function SettingsPanel() {
         <h4 style={{margin:'0 0 0.4rem'}}>Help</h4>
         <ul style={{fontSize:'0.65rem', lineHeight:'0.9rem', opacity:0.85, paddingLeft:'1.1rem'}}>
           <li><code>!battle &lt;query&gt;</code> add top track</li>
-          <li><code>!vote A</code> / <code>!vote B</code> (one vote per user per battle)</li>
-          <li>Keys: <code>n</code>=next, <code>s</code>=skip, <code>p</code>=pause, <code>q</code>=demo</li>
+          <li><code>!vote A</code> / <code>!vote B</code> (only during voting windows)</li>
+          <li>Keys: <code>n</code>=next <code>s</code>=skip <code>p</code>=pause <code>q</code>=demo</li>
         </ul>
       </section>
     </div>

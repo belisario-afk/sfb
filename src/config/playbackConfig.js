@@ -1,24 +1,25 @@
-// Playback configuration and timing constants for battles.
+// Updated playback configuration to support two 20s rounds with two voting windows.
 
 export const PLAYBACK_MODE = (import.meta.env.VITE_PLAYBACK_MODE || 'FULL').toUpperCase();
-// 'FULL'  = Spotify Web Playback SDK (requires streaming scopes + active device)
-// 'PREVIEW' = 30s previews (or silence) via preview_url
 
 // Segment durations (ms)
-export const SEGMENT_DURATIONS = {
-  round1: 10_000, // Round 1 segment per track
-  round2: 20_000  // Round 2 continuation segment
-};
+export const ROUND1_SEGMENT_MS = 20_000; // Each track first pass
+export const ROUND2_SEGMENT_MS = 20_000; // Each track second pass (continuation)
+export const VOTE_WINDOW_MS   = 10_000;  // Voting window duration
 
-// Micro‑scheduling & behavior
-export const TRANSITION_BUFFER = 180;  // ms scheduling buffer before boundary
-export const STAGE_GAP_MS = 120;       // small gap between sequential segments
+// Scheduling
+export const TRANSITION_BUFFER = 180;   // ms early scheduling for playback transitions
+export const STAGE_GAP_MS = 120;        // small gap between segments
 export const BATTLE_AUTOSTART_NEXT_DELAY = 3000;
-export const ALLOW_LIVE_VOTING_DURING_ALL_STAGES = true;
-export const ENFORCE_SEGMENT_PAUSE = true;
-export const MAX_SCHED_DRIFT = 60;
 
-// Exported helper for outside checks
+// Voting behavior
+// 'PER_WINDOW' => user can vote once in vote1 and once in vote2 (max 2 votes)
+// 'SINGLE_PER_BATTLE' => user can only vote once across the entire battle
+export const VOTING_RULE = 'PER_WINDOW';
+
+// Allow a small pause concept if needed (not used during vote windows which already pause)
+export const ENFORCE_SEGMENT_PAUSE = true;
+
 export function isFullPlayback() {
   return PLAYBACK_MODE === 'FULL';
 }

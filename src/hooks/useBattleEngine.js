@@ -1,43 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  SEGMENT_DURATIONS,
+  PLAYBACK_MODE,
+  ROUND1_SEGMENT_MS,
+  ROUND2_SEGMENT_MS,
+  VOTE_WINDOW_MS,
   TRANSITION_BUFFER,
   STAGE_GAP_MS,
   BATTLE_AUTOSTART_NEXT_DELAY,
-  PLAYBACK_MODE,
-  ALLOW_LIVE_VOTING_DURING_ALL_STAGES
+  VOTING_RULE
 } from '../config/playbackConfig.js';
 import { playPreview, stopAllPreviews } from '../lib/audioManager.js';
+import { playTick } from '../lib/voteTickAudio.js';
 
 /**
- * Battle Stage Flow:
+ * New Stage Flow:
  *  intro
- *  round1A  (Track A 0–10s)
- *  round1B  (Track B 0–10s)
- *  decideLeader (pick leader based on votes so far; tie -> random)
- *  round2First   (Leader resumes 10–30s)
- *  round2Second  (Other track resumes 10–30s)
+ *  r1A_play   (A 0–20s)
+ *  r1B_play   (B 0–20s)
+ *  vote1      (10s) – voting enabled
+ *  r2A_play   (A 20–40s)
+ *  r2B_play   (B 20–40s)
+ *  vote2      (10s) – voting enabled
  *  finished
  *
- * VOTING (Updated):
- *  - Votes accumulate for the entire battle (NOT reset each stage).
- *  - One vote per unique userId per battle (first vote locks their choice).
- *  - voteCounts / votes sets persist through all stages until finished.
- *  - On new battle start, votes reset (fresh structure).
+ * Voting Accumulation:
+ * battle.votesWindows = [
+ *   { a:Set<userId>, b:Set<userId> }, // window 1
+ *   { a:Set<userId>, b:Set<userId> }  // window 2
+ * ]
+ * voteTotals = { a:number, b:number } = sum of both windows (plus any rule-based logic)
+ *
+ * VOTING_RULE:
+ *  - 'PER_WINDOW': user may vote once in each window
+ *  - 'SINGLE_PER_BATTLE': user may only vote in the first window they participate
  */
 
 const LOG = '[BattleEngine]';
 let battleCounter = 0;
+
+const VOTE_STAGES = new Set(['vote1', 'vote2']);
 
 export default function useBattleEngine(spotifyClientId) {
   const [queue, setQueue] = useState([]);
   const [currentBattle, setCurrentBattle] = useState(null);
   const [spotifyPlayer, setSpotifyPlayer] = useState(null);
 
-  const timersRef = useRef({ main: null, raf: null });
+  // Vote countdown state
+  const [voteRemaining, setVoteRemaining] = useState(0);
+
+  const timersRef = useRef({ main: null, raf: null, voteInterval: null });
   const pendingStageRef = useRef(null);
 
-  /* -------------------- Queue Management -------------------- */
+  /* ---------- Queue Management ---------- */
   const addTrack = useCallback((track) => {
     if (!track) return;
     if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
@@ -54,7 +68,7 @@ export default function useBattleEngine(spotifyClientId) {
     ]);
   }, []);
 
-  /* -------------------- Battle Init -------------------- */
+  /* ---------- Battle Initialization ---------- */
   const initBattle = useCallback(() => {
     if (queue.length < 2) return null;
     const [a, b, ...rest] = queue;
@@ -66,48 +80,101 @@ export default function useBattleEngine(spotifyClientId) {
       stage: 'intro',
       stageStartedAt: Date.now(),
       startedAt: Date.now(),
+      paused: false,
 
-      // Voting / accumulation
-      votes: { a: new Set(), b: new Set() },  // legacy compatibility
-      voterMap: new Map(),                    // userId -> 'a' | 'b'
-      voteCounts: { a: 0, b: 0 },
-
-      leader: null,
+      // Voting windows
+      votesWindows: [
+        { a: new Set(), b: new Set() },  // vote1
+        { a: new Set(), b: new Set() }   // vote2
+      ],
+      voteTotals: { a: 0, b: 0 },
       winner: null,
-      paused: false
+
+      voteWindow: null,
+      voteEndsAt: null
     };
     setCurrentBattle(battle);
     return battle;
   }, [queue]);
 
-  /* -------------------- Public Controls -------------------- */
   const tryStartBattle = useCallback(() => {
     if (currentBattle && currentBattle.stage !== 'finished') {
-      console.warn(LOG, 'Cannot start new battle yet.');
+      console.warn(LOG, 'Battle still in progress.');
       return;
     }
     const b = initBattle();
     if (b) {
-      console.log(LOG, 'Battle started', b.id);
-      scheduleStage('round1A', b);
+      scheduleStage('r1A_play', b);
     }
   }, [currentBattle, initBattle]);
 
   const nextBattle = tryStartBattle;
 
+  /* ---------- Voting Logic ---------- */
+  const vote = useCallback((choice, userId = 'anon') => {
+    if (choice !== 'a' && choice !== 'b') return;
+    setCurrentBattle(prev => {
+      if (!prev) return prev;
+      if (!VOTE_STAGES.has(prev.stage)) return prev; // only allow in vote stages
+      const windowIndex = prev.stage === 'vote1' ? 0 : 1;
+
+      // Check single-per-battle rule
+      if (VOTING_RULE === 'SINGLE_PER_BATTLE') {
+        // If user already appears in either window sets, ignore
+        const alreadyVoted =
+          prev.votesWindows[0].a.has(userId) ||
+          prev.votesWindows[0].b.has(userId) ||
+          prev.votesWindows[1].a.has(userId) ||
+          prev.votesWindows[1].b.has(userId);
+        if (alreadyVoted) return prev;
+      } else {
+        // PER_WINDOW: only block if user already voted this specific window
+        const win = prev.votesWindows[windowIndex];
+        if (win.a.has(userId) || win.b.has(userId)) return prev;
+      }
+
+      const newWindows = [
+        {
+          a: new Set(prev.votesWindows[0].a),
+          b: new Set(prev.votesWindows[0].b)
+        },
+        {
+          a: new Set(prev.votesWindows[1].a),
+          b: new Set(prev.votesWindows[1].b)
+        }
+      ];
+
+      if (choice === 'a') newWindows[windowIndex].a.add(userId);
+      else newWindows[windowIndex].b.add(userId);
+
+      // Recalculate totals (sum both windows)
+      const totalA =
+        newWindows[0].a.size + newWindows[1].a.size;
+      const totalB =
+        newWindows[0].b.size + newWindows[1].b.size;
+
+      return {
+        ...prev,
+        votesWindows: newWindows,
+        voteTotals: { a: totalA, b: totalB }
+      };
+    });
+  }, []);
+
+  /* ---------- Public Controls ---------- */
   const togglePause = useCallback(() => {
     setCurrentBattle(prev => {
       if (!prev) return prev;
       const paused = !prev.paused;
       if (paused) {
-        clearTimers();
+        clearTimersAll();
         if (PLAYBACK_MODE === 'FULL') {
           try { spotifyPlayer?.pause(); } catch {}
         } else {
           stopAllPreviews();
         }
       } else {
-        // Resume by re-scheduling current stage from start (simpler)
+        // Resume current stage from start (simpler)
         scheduleStage(prev.stage, prev, true);
       }
       return { ...prev, paused };
@@ -117,128 +184,67 @@ export default function useBattleEngine(spotifyClientId) {
   const forceNextStage = useCallback(() => {
     setCurrentBattle(prev => {
       if (!prev) return prev;
-      clearTimers();
+      clearTimersAll();
       advanceStage(prev);
       return prev;
     });
   }, []);
 
-  /* -------------------- Voting (Accumulative) -------------------- */
-  const vote = useCallback((choice, userId = 'anon') => {
-    if (choice !== 'a' && choice !== 'b') return;
-    setCurrentBattle(prev => {
-      if (!prev) return prev;
-      if (prev.stage === 'finished') return prev;
-      // If we do NOT want voting during all stages except final:
-      if (!ALLOW_LIVE_VOTING_DURING_ALL_STAGES &&
-          !['round1A','round1B','round2First','round2Second'].includes(prev.stage)) {
-        return prev;
-      }
-      if (prev.voterMap.has(userId)) {
-        // Already voted this battle: ignore
-        return prev;
-      }
-      // Register new vote
-      const votesA = new Set(prev.votes.a);
-      const votesB = new Set(prev.votes.b);
-      if (choice === 'a') votesA.add(userId); else votesB.add(userId);
+  /* ---------- Stage Management ---------- */
 
-      const voterMap = new Map(prev.voterMap);
-      voterMap.set(userId, choice);
-
-      const voteCounts = {
-        a: prev.voteCounts.a + (choice === 'a' ? 1 : 0),
-        b: prev.voteCounts.b + (choice === 'b' ? 1 : 0)
-      };
-
-      return {
-        ...prev,
-        votes: { a: votesA, b: votesB },
-        voterMap,
-        voteCounts
-      };
-    });
-  }, []);
-
-  /* -------------------- Stage Computations -------------------- */
-  function computeLeader(battle) {
-    const { a, b } = battle.voteCounts;
-    if (a === b) {
-      // Tie -> random
-      return Math.random() < 0.5 ? 'a' : 'b';
-    }
-    return a > b ? 'a' : 'b';
-  }
-
-  function computeWinner(battle) {
-    const { a, b } = battle.voteCounts;
-    if (a === b) return null; // tie (caller could implement tie-break)
-    return a > b ? 'a' : 'b';
-  }
-
-  function stageToSegment(stage, battle) {
-    const r1 = SEGMENT_DURATIONS.round1;
-    const r2 = SEGMENT_DURATIONS.round2;
-    switch (stage) {
-      case 'round1A': return { side: 'a', offsetMs: 0, durationMs: r1 };
-      case 'round1B': return { side: 'b', offsetMs: 0, durationMs: r1 };
-      case 'round2First': return { side: battle.leader, offsetMs: r1, durationMs: r2 };
-      case 'round2Second': return { side: battle.leader === 'a' ? 'b' : 'a', offsetMs: r1, durationMs: r2 };
-      default: return null;
-    }
-  }
-
-  /* -------------------- Stage Advance & Scheduling -------------------- */
   function advanceStage(snapshot) {
     setCurrentBattle(prev => {
       const b = snapshot || prev;
       if (!b) return prev;
+
       let next;
       switch (b.stage) {
-        case 'intro': next = 'round1A'; break;
-        case 'round1A': next = 'round1B'; break;
-        case 'round1B': next = 'decideLeader'; break;
-        case 'decideLeader': next = 'round2First'; break;
-        case 'round2First': next = 'round2Second'; break;
-        case 'round2Second': next = 'finished'; break;
-        default: next = 'finished';
+        case 'intro':     next = 'r1A_play'; break;
+        case 'r1A_play':  next = 'r1B_play'; break;
+        case 'r1B_play':  next = 'vote1'; break;
+        case 'vote1':     next = 'r2A_play'; break;
+        case 'r2A_play':  next = 'r2B_play'; break;
+        case 'r2B_play':  next = 'vote2'; break;
+        case 'vote2':     next = 'finished'; break;
+        default:          next = 'finished';
       }
+
       scheduleStage(next, b);
       return b;
     });
   }
 
   function scheduleStage(nextStage, battleArg, isRestart = false) {
-    clearTimers();
+    clearTimersPlayback();
     setCurrentBattle(prev => {
       const b = battleArg || prev;
       if (!b) return prev;
-      let updated = { ...b, stage: nextStage, stageStartedAt: Date.now() };
 
-      if (nextStage === 'decideLeader') {
-        updated.leader = computeLeader(updated);
-      }
+      let updated = {
+        ...b,
+        stage: nextStage,
+        stageStartedAt: Date.now()
+      };
 
       if (nextStage === 'finished') {
         updated.winner = computeWinner(updated);
-        console.log(LOG, 'Battle finished. Votes:', updated.voteCounts, 'Winner:', updated.winner);
+        console.log(LOG, 'Battle finished. Totals:', updated.voteTotals, 'Winner:', updated.winner);
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.main = setTimeout(() => {
             tryStartBattle();
           }, BATTLE_AUTOSTART_NEXT_DELAY);
         }
+        setVoteRemaining(0);
+        clearTimersAll();
         setCurrentBattle(updated);
         return updated;
       }
 
-      const segment = stageToSegment(nextStage, updated);
-      if (segment) {
-        startSegment(segment, updated);
-        scheduleSegmentEnd(segment, updated);
+      if (VOTE_STAGES.has(nextStage)) {
+        updated = enterVoteStage(updated, nextStage);
       } else {
-        // intro / decideLeader quick transitions
-        const delay = nextStage === 'decideLeader' ? 400 : 700;
-        timersRef.current.main = setTimeout(() => advanceStage(updated), delay);
+        // playback stage
+        startPlaybackSegment(nextStage, updated);
       }
 
       setCurrentBattle(updated);
@@ -246,14 +252,90 @@ export default function useBattleEngine(spotifyClientId) {
     });
   }
 
+  function enterVoteStage(battle, stage) {
+    // Pause playback if in full mode
+    if (PLAYBACK_MODE === 'FULL') {
+      try { spotifyPlayer?.pause?.(); } catch {}
+    } else {
+      stopAllPreviews();
+    }
+    const windowIndex = stage === 'vote1' ? 0 : 1;
+    const voteEndsAt = Date.now() + VOTE_WINDOW_MS;
+    const updated = {
+      ...battle,
+      voteWindow: windowIndex + 1,
+      voteEndsAt
+    };
+    setVoteRemaining(VOTE_WINDOW_MS);
+
+    // Start countdown interval
+    if (timersRef.current.voteInterval) {
+      clearInterval(timersRef.current.voteInterval);
+    }
+    timersRef.current.voteInterval = setInterval(() => {
+      setVoteRemaining(rem => {
+        const newRem = voteEndsAt - Date.now();
+        if (newRem <= 0) {
+          clearInterval(timersRef.current.voteInterval);
+          timersRef.current.voteInterval = null;
+          // Advance after small buffer to allow UI animate out
+          setTimeout(() => advanceStage(updated), 150);
+          return 0;
+        } else {
+          // Play tick each elapsed second boundary
+          const sec = Math.ceil(newRem / 1000);
+          // Use tick on every call when remainder crosses integer boundary
+          playTick();
+          return newRem;
+        }
+      });
+    }, 1000);
+
+    return updated;
+  }
+
+  function computeWinner(battle) {
+    const { a, b } = battle.voteTotals;
+    if (a === b) return null;
+    return a > b ? 'a' : 'b';
+  }
+
+  function startPlaybackSegment(stage, battle) {
+    const segment = resolveSegment(stage);
+    if (!segment) return;
+
+    const track = battle[segment.side];
+    if (!track) return;
+
+    if (battle.paused) return;
+
+    if (PLAYBACK_MODE === 'FULL') {
+      playSpotifySegment(track, segment.offsetMs);
+    } else {
+      playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
+    }
+
+    scheduleSegmentEnd(segment, battle);
+  }
+
+  function resolveSegment(stage) {
+    switch (stage) {
+      case 'r1A_play': return { side: 'a', offsetMs: 0, durationMs: ROUND1_SEGMENT_MS };
+      case 'r1B_play': return { side: 'b', offsetMs: 0, durationMs: ROUND1_SEGMENT_MS };
+      case 'r2A_play': return { side: 'a', offsetMs: ROUND1_SEGMENT_MS, durationMs: ROUND2_SEGMENT_MS };
+      case 'r2B_play': return { side: 'b', offsetMs: ROUND1_SEGMENT_MS, durationMs: ROUND2_SEGMENT_MS };
+      default: return null;
+    }
+  }
+
   function scheduleSegmentEnd(segment, battle) {
     const target = performance.now() + segment.durationMs;
     pendingStageRef.current = { stage: battle.stage, end: target };
 
-    const early = Math.max(0, (segment.durationMs - TRANSITION_BUFFER));
+    const early = Math.max(0, segment.durationMs - TRANSITION_BUFFER);
     timersRef.current.main = setTimeout(() => {
       const spin = () => {
-        if (performance.now() >= target - 6) {
+        if (performance.now() >= target - 5) {
           if (STAGE_GAP_MS > 0) {
             setTimeout(() => advanceStage(battle), STAGE_GAP_MS);
           } else {
@@ -265,21 +347,6 @@ export default function useBattleEngine(spotifyClientId) {
       };
       spin();
     }, early);
-  }
-
-  function hasFullPlaybackEnv() {
-    return PLAYBACK_MODE === 'FULL';
-  }
-
-  async function startSegment(segment, battle) {
-    if (battle.paused) return;
-    const track = battle[segment.side];
-    if (!track) return;
-    if (hasFullPlaybackEnv()) {
-      await playSpotifySegment(track, segment.offsetMs);
-    } else {
-      playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
-    }
   }
 
   async function playSpotifySegment(track, offsetMs) {
@@ -297,11 +364,11 @@ export default function useBattleEngine(spotifyClientId) {
         },
         body: JSON.stringify({
           uris: [track.uri],
-            position_ms: offsetMs
+          position_ms: offsetMs
         })
       });
     } catch (e) {
-      console.warn(LOG, 'Full playback failed, consider preview fallback', e);
+      console.warn(LOG, 'Full playback failed, fallback preview maybe', e);
     }
   }
 
@@ -311,16 +378,23 @@ export default function useBattleEngine(spotifyClientId) {
     playPreview(`SEG-${side}`, track.preview_url, seconds);
   }
 
-  /* -------------------- Timer Cleanup -------------------- */
-  const clearTimers = () => {
+  /* ---------- Cleanup Helpers ---------- */
+  const clearTimersPlayback = () => {
     if (timersRef.current.main) clearTimeout(timersRef.current.main);
     if (timersRef.current.raf) cancelAnimationFrame(timersRef.current.raf);
     timersRef.current.main = null;
     timersRef.current.raf = null;
-    pendingStageRef.current = null;
   };
 
-  useEffect(() => clearTimers, []);
+  function clearTimersAll() {
+    clearTimersPlayback();
+    if (timersRef.current.voteInterval) {
+      clearInterval(timersRef.current.voteInterval);
+      timersRef.current.voteInterval = null;
+    }
+  }
+
+  useEffect(() => clearTimersAll, []);
 
   return {
     queue,
@@ -333,6 +407,7 @@ export default function useBattleEngine(spotifyClientId) {
     forceNextStage,
     togglePause,
     spotifyPlayer,
-    setSpotifyPlayer
+    setSpotifyPlayer,
+    voteRemaining // for UI countdown
   };
 }
