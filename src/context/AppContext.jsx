@@ -25,7 +25,7 @@ export const useAppContext = () => useContext(AppContext);
 function parseQueryParams() {
   const p = new URLSearchParams(window.location.search);
   const o = {};
-  for (const [k,v] of p.entries()) o[k] = v;
+  for (const [k, v] of p.entries()) o[k] = v;
   return o;
 }
 
@@ -73,6 +73,7 @@ export function AppProvider({ children }) {
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
     ''
   );
+
   const {
     queue,
     addTrack,
@@ -137,7 +138,7 @@ export function AppProvider({ children }) {
           setAuthState(tokens);
           setAuthError(null);
           const clean = window.location.origin + window.location.pathname + window.location.hash;
-          window.history.replaceState({}, '', clean);
+            window.history.replaceState({}, '', clean);
         } catch (e) {
           setAuthError(e.message);
         } finally {
@@ -168,7 +169,7 @@ export function AppProvider({ children }) {
     return () => { dead = true; clearTimeout(t); };
   }, [spotifyClientId]);
 
-  // Chat commands subscription
+  // Chat commands
   useEffect(() => {
     if (!chat || typeof chat.subscribe !== 'function') return;
     const handler = (msg) => {

@@ -17,29 +17,8 @@ import {
 import { ALLOW_NO_PREVIEW } from '../config/battleConfig.js';
 import { PLAYBACK_MODE } from '../config/playbackConfig.js';
 
-/**
- * SpotifyTrackSearchModal
- *
- * Enhancements:
- *  - Debounced search (300ms)
- *  - Handles direct Spotify track URL or raw track ID
- *  - Keyboard navigation (ArrowUp / ArrowDown / Enter)
- *  - Abort stale fetches
- *  - Shows why "Add" is disabled
- *  - Falls back to context.addTrack if onSelect not provided
- *  - Distinguishes between "NO PREVIEW" (but playable in FULL mode) vs blocked by config
- *  - Ability to re-use last 5 queries (simple in-memory history)
- */
-
-export default function SpotifyTrackSearchModal({
-  onClose,
-  onSelect
-}) {
-  const {
-    authState,
-    addTrack // fallback if onSelect not passed
-  } = useAppContext();
-
+export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
+  const { authState, addTrack } = useAppContext();
   const accessToken = authState?.accessToken;
 
   const [query, setQuery] = useState('');
@@ -58,54 +37,38 @@ export default function SpotifyTrackSearchModal({
 
   const isFullPlayback = PLAYBACK_MODE === 'FULL';
 
-  // Focus on mount
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 30);
     return () => clearTimeout(t);
   }, []);
 
-  // Clean up pending search
   useEffect(() => {
     return () => {
-      if (abortRef.current) {
-        try { abortRef.current.abort(); } catch {}
-      }
+      if (abortRef.current) try { abortRef.current.abort(); } catch {}
       clearTimeout(debounceRef.current);
     };
   }, []);
 
   const parseTrackIdFromQuery = (q) => {
     if (!q) return null;
-    // Handle full Spotify URL
-    // Examples:
-    // https://open.spotify.com/track/12345?si=...
-    // spotify:track:12345
     const urlMatch = q.match(/open\.spotify\.com\/track\/([A-Za-z0-9]+)\b/);
     if (urlMatch) return urlMatch[1];
     const uriMatch = q.match(/spotify:track:([A-Za-z0-9]+)/);
     if (uriMatch) return uriMatch[1];
-    // Raw probable track id (22 chars usually) - heuristic
     if (/^[A-Za-z0-9]{10,30}$/.test(q)) return q;
     return null;
   };
 
-  // Debounced search trigger
   const handleQueryChange = (val) => {
     setQuery(val);
     setFetchError(null);
     setResults([]);
     setHighlightIndex(-1);
-
     clearTimeout(debounceRef.current);
-    if (!val) {
-      return;
-    }
-    debounceRef.current = setTimeout(() => {
-      performSearch(val);
-    }, 300);
+    if (!val) return;
+    debounceRef.current = setTimeout(() => performSearch(val), 300);
   };
 
-  // Core search (or direct track fetch)
   const performSearch = useCallback(async (raw) => {
     if (!accessToken) {
       setFetchError('Not authenticated with Spotify.');
@@ -118,22 +81,17 @@ export default function SpotifyTrackSearchModal({
       return;
     }
 
-    // If it looks like a track id / URL, fetch that one track
-    const maybeTrackId = parseTrackIdFromQuery(q);
-    if (maybeTrackId) {
+    const maybeId = parseTrackIdFromQuery(q);
+    if (maybeId) {
       setLoading(true);
       setFetchError(null);
-      if (abortRef.current) {
-        try { abortRef.current.abort(); } catch {}
-      }
+      if (abortRef.current) try { abortRef.current.abort(); } catch {}
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const track = await getTrackById(accessToken, maybeTrackId);
+        const track = await getTrackById(accessToken, maybeId);
         setResults(track ? [track] : []);
-        if (!track) {
-          setFetchError('Track not found for supplied ID / URL.');
-        }
+        if (!track) setFetchError('Track not found for supplied ID / URL.');
       } catch (e) {
         setFetchError(e.message || 'Error fetching track by ID.');
       } finally {
@@ -142,38 +100,28 @@ export default function SpotifyTrackSearchModal({
       return;
     }
 
-    // Normal search
     setLoading(true);
     setFetchError(null);
-    if (abortRef.current) {
-      try { abortRef.current.abort(); } catch {}
-    }
+    if (abortRef.current) try { abortRef.current.abort(); } catch {}
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const items = await searchTracks(accessToken, q);
       if (!controller.signal.aborted) {
         setResults(items || []);
-        if ((items || []).length === 0) {
-          setFetchError('No results.');
-        }
+        if ((items || []).length === 0) setFetchError('No results.');
       }
     } catch (e) {
       if (!controller.signal.aborted) {
         setFetchError(e.message || 'Search failed.');
       }
     } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
-      }
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [accessToken]);
 
-  // Keep simple search history
   useEffect(() => {
-    if (!query || loading) return;
-    if (fetchError) return;
-    // Add to history after results success
+    if (!query || loading || fetchError) return;
     if (results.length > 0) {
       setHistory(h => {
         const exists = h.includes(query);
@@ -206,10 +154,8 @@ export default function SpotifyTrackSearchModal({
       if (typeof consumer === 'function') {
         consumer(track);
       } else {
-        console.warn('[SpotifyTrackSearchModal] No valid onSelect or context addTrack function.');
+        console.warn('[SpotifyTrackSearchModal] No valid onSelect/addTrack.');
       }
-      // Optionally close after add
-      // onClose?.();
     } finally {
       setBusyAddId(null);
     }
@@ -217,10 +163,8 @@ export default function SpotifyTrackSearchModal({
 
   const canAdd = (track) => {
     if (!track) return false;
-    const hasPreview = !!track.preview_url;
-    if (hasPreview) return true;
+    if (track.preview_url) return true;
     if (ALLOW_NO_PREVIEW) return true;
-    // If full playback mode, still allow (if you want to override preview requirement)
     if (isFullPlayback && ALLOW_NO_PREVIEW) return true;
     return false;
   };
@@ -233,9 +177,11 @@ export default function SpotifyTrackSearchModal({
     return 'Unavailable';
   };
 
-  // Keyboard navigation
   const handleKeyDown = (e) => {
-    if (!results.length) return;
+    if (!results.length) {
+      if (e.key === 'Escape') onClose?.();
+      return;
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setHighlightIndex(i => {
@@ -254,8 +200,8 @@ export default function SpotifyTrackSearchModal({
       if (highlightIndex >= 0 && highlightIndex < results.length) {
         const target = results[highlightIndex];
         if (canAdd(target)) handleAddTrack(target);
-      } else if (results.length === 1) {
-        if (canAdd(results[0])) handleAddTrack(results[0]);
+      } else if (results.length === 1 && canAdd(results[0])) {
+        handleAddTrack(results[0]);
       }
     } else if (e.key === 'Escape') {
       onClose?.();
@@ -269,9 +215,7 @@ export default function SpotifyTrackSearchModal({
     if (child) {
       const cb = child.getBoundingClientRect();
       const wb = wrap.getBoundingClientRect();
-      if (cb.top < wb.top) {
-        child.scrollIntoView({ block: 'nearest' });
-      } else if (cb.bottom > wb.bottom) {
+      if (cb.top < wb.top || cb.bottom > wb.bottom) {
         child.scrollIntoView({ block: 'nearest' });
       }
     }
@@ -306,7 +250,7 @@ export default function SpotifyTrackSearchModal({
 
         {!ALLOW_NO_PREVIEW && !isFullPlayback && (
           <div style={{marginBottom:'0.45rem', fontSize:'0.55rem', color:'#f88'}}>
-            Tracks without previews are blocked (ALLOW_NO_PREVIEW=false). Enable previews or switch to FULL playback with permission.
+            Tracks without previews are blocked (ALLOW_NO_PREVIEW=false).
           </div>
         )}
 
@@ -336,7 +280,7 @@ export default function SpotifyTrackSearchModal({
         </div>
 
         {history.length > 0 && (
-            <div style={{marginTop:'0.4rem', display:'flex', gap:'0.35rem', flexWrap:'wrap'}}>
+          <div style={{marginTop:'0.4rem', display:'flex', gap:'0.35rem', flexWrap:'wrap'}}>
             {history.map(h => (
               <button
                 key={h}

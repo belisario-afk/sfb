@@ -4,7 +4,6 @@ import { PLAYBACK_MODE, SEGMENT_DURATIONS, ENFORCE_SEGMENT_PAUSE } from '../conf
 
 export default function SettingsPanel() {
   const {
-    // Auth & scopes
     authState,
     authError,
     authChecking,
@@ -13,22 +12,18 @@ export default function SettingsPanel() {
     beginSpotifyAuth,
     logoutSpotify,
 
-    // Client ID
     spotifyClientId,
     setSpotifyClientId,
 
-    // Chat / relay
     chatMode, setChatMode,
     relayUrl, setRelayUrl,
 
-    // Battle controls
     addDemoPair,
     nextBattle,
     forceNextStage,
     togglePause,
     battle,
 
-    // Player
     spotifyPlayer
   } = useAppContext();
 
@@ -42,9 +37,7 @@ export default function SettingsPanel() {
     setSpotifyClientId(newId);
     localStorage.setItem('customSpotifyClientId', newId);
   };
-  const saveRelay = () => {
-    setRelayUrl(localRelay.trim());
-  };
+  const saveRelay = () => setRelayUrl(localRelay.trim());
 
   const accessToken = (() => {
     try {
@@ -176,7 +169,7 @@ export default function SettingsPanel() {
           {PLAYBACK_MODE === 'FULL' && (
             <>
               <div style={{marginTop:'0.4rem'}}>
-                Player Status:&nbsp;
+                Player Status:{' '}
                 {spotifyPlayer?.error && (
                   <span style={{color:'#ff6b6b'}}>Error: {spotifyPlayer.error}</span>
                 )}
@@ -291,9 +284,9 @@ export default function SettingsPanel() {
         <ul style={{fontSize:'0.65rem', lineHeight:'0.9rem', opacity:0.85, paddingLeft:'1.1rem'}}>
           <li><code>!battle &lt;query&gt;</code> add top track of query</li>
           <li><code>!vote A</code> / <code>!vote B</code> vote current battle</li>
-          <li>Keys: <code>n</code>=next battle, <code>s</code>=skip stage, <code>q</code>=demo, <code>p</code>=pause</li>
+          <li>Keys: <code>n</code>=next, <code>s</code>=skip stage, <code>q</code>=demo, <code>p</code>=pause</li>
           {PLAYBACK_MODE === 'FULL' && (
-            <li>If silent: re-auth for scopes or use Transfer Playback.</li>
+            <li>If silent: re-auth scopes or use Transfer Playback.</li>
           )}
         </ul>
       </section>

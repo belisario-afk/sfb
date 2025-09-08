@@ -3,9 +3,9 @@
  * Modes:
  *  - simulation: generates fake chat messages with commands
  *  - relay: connects to a WebSocket URL (expects JSON { user, text } or plain text)
- *  - direct: passive, lets you manually send()
+ *  - direct: passive
  *
- * Always returns:
+ * Returns:
  * {
  *   mode, relayUrl, status,
  *   messages, send(text, user?),
@@ -20,7 +20,7 @@ const nextId = () => 'm' + (++globalMsgId).toString(36);
 
 export default function useChat({ mode = 'simulation', relayUrl } = {}) {
   const [messages, setMessages] = useState([]);
-  const [status, setStatus] = useState('idle'); // idle | connecting | open | closed | error
+  const [status, setStatus] = useState('idle'); // idle|connecting|open|closed|error
   const wsRef = useRef(null);
   const simRef = useRef(null);
   const listeners = useRef(new Set());
@@ -51,13 +51,11 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
     }
   }
 
-  // Simulation mode
+  // Simulation
   useEffect(() => {
     if (mode !== 'simulation') return;
     setStatus('open');
-    if (messages.length === 0) {
-      pushMessage('system', 'Simulation started.');
-    }
+    if (messages.length === 0) pushMessage('system', 'Simulation started.');
     simRef.current = setInterval(() => {
       const users = ['ada', 'linus', 'grace', 'hopper', 'turing', 'lovelace'];
       const verbs = ['queues', 'likes', 'pings', 'votes', 'adds', 'requests'];
@@ -77,7 +75,7 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Relay mode
+  // Relay
   useEffect(() => {
     if (mode !== 'relay') {
       if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
@@ -123,7 +121,7 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
     };
   }, [mode, relayUrl]);
 
-  // Direct mode
+  // Direct
   useEffect(() => {
     if (mode === 'direct') {
       setStatus('open');
@@ -133,9 +131,7 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
   }, [mode]);
 
   function subscribe(fn) {
-    if (typeof fn === 'function') {
-      listeners.current.add(fn);
-    }
+    if (typeof fn === 'function') listeners.current.add(fn);
     return () => unsubscribe(fn);
   }
   function unsubscribe(fn) {
