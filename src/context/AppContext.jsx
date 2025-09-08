@@ -25,7 +25,7 @@ export const useAppContext = () => useContext(AppContext);
 function parseQueryParams() {
   const params = new URLSearchParams(window.location.search);
   const out = {};
-  for (const [k, v] of params.entries()) out[k] = v;
+  for (const [k,v] of params.entries()) out[k] = v;
   return out;
 }
 
@@ -56,7 +56,6 @@ export function AppProvider({ children }) {
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
     ''
   );
-
   const [authState, setAuthState] = useState(loadStoredTokens());
   const [authError, setAuthError] = useState(null);
   const [authChecking, setAuthChecking] = useState(false);
@@ -73,7 +72,6 @@ export function AppProvider({ children }) {
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
     ''
   );
-
   const {
     queue,
     addTrack,
@@ -88,10 +86,12 @@ export function AppProvider({ children }) {
 
   const chat = useChat({ mode: chatMode, relayUrl });
 
-  // Expose chat for debugging
+  // Debug exposure
   if (typeof window !== 'undefined') {
-    window.__SFB_DEBUG = window.__SFB_DEBUG || {};
-    window.__SFB_DEBUG.chat = chat;
+    window.__SFB_DEBUG = {
+      ...(window.__SFB_DEBUG || {}),
+      chat
+    };
   }
 
   const normalizeRelay = useCallback((val) => {
@@ -125,6 +125,7 @@ export function AppProvider({ children }) {
     startSpotifyAuth(spotifyClientId);
   }, [spotifyClientId]);
 
+  // PKCE exchange
   useEffect(() => {
     const { code, error } = parseQueryParams();
     if (error) {
@@ -149,6 +150,7 @@ export function AppProvider({ children }) {
     }
   }, [spotifyClientId]);
 
+  // Refresh loop
   useEffect(() => {
     let cancelled = false;
     let t;
@@ -166,69 +168,26 @@ export function AppProvider({ children }) {
       t = setTimeout(loop, 60000);
     }
     loop();
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
+    return () => { cancelled = true; clearTimeout(t); };
   }, [spotifyClientId]);
 
-  // Helper to attach chat listener robustly
-  function attachChatListener(chatObj, handler) {
-    if (!chatObj || typeof handler !== 'function') return () => {};
-    // Preferred: subscribe / unsubscribe
-    if (typeof chatObj.subscribe === 'function') {
-      chatObj.subscribe(handler);
-      return () => {
-        if (typeof chatObj.unsubscribe === 'function') {
-          chatObj.unsubscribe(handler);
-        }
-      };
-    }
-    // EventEmitter style
-    if (typeof chatObj.on === 'function') {
-      chatObj.on('message', handler);
-      return () => {
-        if (typeof chatObj.off === 'function') {
-          chatObj.off('message', handler);
-        } else if (typeof chatObj.removeListener === 'function') {
-          chatObj.removeListener('message', handler);
-        }
-      };
-    }
-    // DOM-like addEventListener
-    if (typeof chatObj.addEventListener === 'function') {
-      chatObj.addEventListener('message', handler);
-      return () => {
-        if (typeof chatObj.removeEventListener === 'function') {
-          chatObj.removeEventListener('message', handler);
-        }
-      };
-    }
-    console.warn('[Chat] No recognized listener API (subscribe/on/addEventListener). Listener skipped.');
-    return () => {};
-  }
-
+  // Chat message command handling via unified subscribe
   useEffect(() => {
-    if (!chat) return;
+    if (!chat || typeof chat.subscribe !== 'function') return;
     const handler = (msg) => {
-      try {
-        const text = (msg?.text || '').toString();
-        const lower = text.toLowerCase().trim();
-        if (lower.startsWith('!vote ')) {
-            const choice = lower.split(/\s+/)[1];
-          if (choice === 'a' || choice === 'b') {
-            vote(choice, msg.user || msg.username || 'anon');
-          }
-        } else if (lower.startsWith('!battle ')) {
-          const query = text.slice('!battle '.length).trim();
-          if (query) addTopTrackByQuery(query);
+      const text = (msg?.text || '').toLowerCase().trim();
+      if (text.startsWith('!vote ')) {
+        const choice = text.split(/\s+/)[1];
+        if (choice === 'a' || choice === 'b') {
+          vote(choice, msg.user || 'anon');
         }
-      } catch (e) {
-        console.warn('[Chat Handler] Error processing message', e);
+      } else if (text.startsWith('!battle ')) {
+        const query = (msg.text || '').slice('!battle '.length).trim();
+        if (query) addTopTrackByQuery(query);
       }
     };
-    const detach = attachChatListener(chat, handler);
-    return detach;
+    const unsub = chat.subscribe(handler);
+    return () => unsub && unsub();
   }, [chat, vote, addTrack]);
 
   const addTopTrackByQuery = useCallback(async (query) => {
@@ -266,7 +225,6 @@ export function AppProvider({ children }) {
   const hasScopes = hasRequiredScopes(authState);
 
   const value = {
-    // Auth
     authState,
     authError,
     authChecking,
@@ -275,18 +233,15 @@ export function AppProvider({ children }) {
     beginSpotifyAuth,
     logoutSpotify,
 
-    // Client ID
     spotifyClientId,
     setSpotifyClientId: updateClientId,
 
-    // Chat
     chatMode,
     setChatMode,
     relayUrl,
     setRelayUrl: normalizeRelay,
     chat,
 
-    // Battle
     queue,
     battle,
     tryStartBattle,
@@ -301,11 +256,9 @@ export function AppProvider({ children }) {
     addDemoPair,
     previewTrack,
 
-    // UI
     modalOpen,
     setModalOpen,
 
-    // Player
     spotifyPlayer
   };
 
