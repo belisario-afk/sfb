@@ -43,6 +43,7 @@ export default function BattleArena() {
           isWinner={winner === 'a'}
           isLoser={loser === 'a'}
           isLeader={battle.leader === 'a'}
+          votes={battle.voteCounts?.a ?? battle.votes?.a?.size ?? 0}
         />
       </div>
       <NeonVS
@@ -58,13 +59,14 @@ export default function BattleArena() {
           isWinner={winner === 'b'}
           isLoser={loser === 'b'}
           isLeader={battle.leader === 'b'}
+          votes={battle.voteCounts?.b ?? battle.votes?.b?.size ?? 0}
         />
       </div>
     </div>
   );
 }
 
-function AlbumCard({ track, side, isActive, isWinner, isLoser, isLeader }) {
+function AlbumCard({ track, side, isActive, isWinner, isLoser, isLeader, votes }) {
   const art = track?.album?.images?.[0]?.url;
   return (
     <div className={[
@@ -82,8 +84,8 @@ function AlbumCard({ track, side, isActive, isWinner, isLoser, isLeader }) {
           <div className="album-glow" />
         </div>
         <div className="album-meta">
-          <div className="album-side-label">{side}</div>
-            <div className="album-title" title={track?.name}>{track?.name}</div>
+          <div className="album-side-label">{side} • {votes} vote{votes===1?'':'s'}</div>
+          <div className="album-title" title={track?.name}>{track?.name}</div>
           <div className="album-artists">
             {(track?.artists || []).map(a => a.name).join(', ')}
           </div>

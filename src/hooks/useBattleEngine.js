@@ -5,13 +5,29 @@ import {
   STAGE_GAP_MS,
   BATTLE_AUTOSTART_NEXT_DELAY,
   PLAYBACK_MODE,
-  ALLOW_LIVE_VOTING_DURING_ALL_STAGES,
-  MAX_SCHED_DRIFT
+  ALLOW_LIVE_VOTING_DURING_ALL_STAGES
 } from '../config/playbackConfig.js';
 import { playPreview, stopAllPreviews } from '../lib/audioManager.js';
 
-let battleCounter = 0;
+/**
+ * Battle Stage Flow:
+ *  intro
+ *  round1A  (Track A 0–10s)
+ *  round1B  (Track B 0–10s)
+ *  decideLeader (pick leader based on votes so far; tie -> random)
+ *  round2First   (Leader resumes 10–30s)
+ *  round2Second  (Other track resumes 10–30s)
+ *  finished
+ *
+ * VOTING (Updated):
+ *  - Votes accumulate for the entire battle (NOT reset each stage).
+ *  - One vote per unique userId per battle (first vote locks their choice).
+ *  - voteCounts / votes sets persist through all stages until finished.
+ *  - On new battle start, votes reset (fresh structure).
+ */
+
 const LOG = '[BattleEngine]';
+let battleCounter = 0;
 
 export default function useBattleEngine(spotifyClientId) {
   const [queue, setQueue] = useState([]);
@@ -21,7 +37,9 @@ export default function useBattleEngine(spotifyClientId) {
   const timersRef = useRef({ main: null, raf: null });
   const pendingStageRef = useRef(null);
 
+  /* -------------------- Queue Management -------------------- */
   const addTrack = useCallback((track) => {
+    if (!track) return;
     if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
     setQueue(q => [...q, track]);
   }, []);
@@ -36,14 +54,7 @@ export default function useBattleEngine(spotifyClientId) {
     ]);
   }, []);
 
-  const clearTimers = () => {
-    if (timersRef.current.main) clearTimeout(timersRef.current.main);
-    if (timersRef.current.raf) cancelAnimationFrame(timersRef.current.raf);
-    timersRef.current.main = null;
-    timersRef.current.raf = null;
-    pendingStageRef.current = null;
-  };
-
+  /* -------------------- Battle Init -------------------- */
   const initBattle = useCallback(() => {
     if (queue.length < 2) return null;
     const [a, b, ...rest] = queue;
@@ -53,9 +64,14 @@ export default function useBattleEngine(spotifyClientId) {
       a,
       b,
       stage: 'intro',
-      votes: { a: new Set(), b: new Set() },
-      startedAt: Date.now(),
       stageStartedAt: Date.now(),
+      startedAt: Date.now(),
+
+      // Voting / accumulation
+      votes: { a: new Set(), b: new Set() },  // legacy compatibility
+      voterMap: new Map(),                    // userId -> 'a' | 'b'
+      voteCounts: { a: 0, b: 0 },
+
       leader: null,
       winner: null,
       paused: false
@@ -64,24 +80,10 @@ export default function useBattleEngine(spotifyClientId) {
     return battle;
   }, [queue]);
 
-  const vote = useCallback((choice, userId = 'anon') => {
-    setCurrentBattle(prev => {
-      if (!prev) return prev;
-      if (!ALLOW_LIVE_VOTING_DURING_ALL_STAGES && prev.stage === 'finished') return prev;
-      if (choice !== 'a' && choice !== 'b') return prev;
-      if (prev.votes[choice].has(userId)) return prev;
-      const votes = {
-        a: new Set(prev.votes.a),
-        b: new Set(prev.votes.b)
-      };
-      votes[choice].add(userId);
-      return { ...prev, votes };
-    });
-  }, []);
-
+  /* -------------------- Public Controls -------------------- */
   const tryStartBattle = useCallback(() => {
     if (currentBattle && currentBattle.stage !== 'finished') {
-      console.warn(LOG, 'Cannot start new battle: current active.');
+      console.warn(LOG, 'Cannot start new battle yet.');
       return;
     }
     const b = initBattle();
@@ -105,6 +107,7 @@ export default function useBattleEngine(spotifyClientId) {
           stopAllPreviews();
         }
       } else {
+        // Resume by re-scheduling current stage from start (simpler)
         scheduleStage(prev.stage, prev, true);
       }
       return { ...prev, paused };
@@ -120,32 +123,72 @@ export default function useBattleEngine(spotifyClientId) {
     });
   }, []);
 
-  function computeLeader(b) {
-    const av = b.votes.a.size;
-    const bv = b.votes.b.size;
-    if (av === bv) return Math.random() < 0.5 ? 'a' : 'b';
-    return av > bv ? 'a' : 'b';
+  /* -------------------- Voting (Accumulative) -------------------- */
+  const vote = useCallback((choice, userId = 'anon') => {
+    if (choice !== 'a' && choice !== 'b') return;
+    setCurrentBattle(prev => {
+      if (!prev) return prev;
+      if (prev.stage === 'finished') return prev;
+      // If we do NOT want voting during all stages except final:
+      if (!ALLOW_LIVE_VOTING_DURING_ALL_STAGES &&
+          !['round1A','round1B','round2First','round2Second'].includes(prev.stage)) {
+        return prev;
+      }
+      if (prev.voterMap.has(userId)) {
+        // Already voted this battle: ignore
+        return prev;
+      }
+      // Register new vote
+      const votesA = new Set(prev.votes.a);
+      const votesB = new Set(prev.votes.b);
+      if (choice === 'a') votesA.add(userId); else votesB.add(userId);
+
+      const voterMap = new Map(prev.voterMap);
+      voterMap.set(userId, choice);
+
+      const voteCounts = {
+        a: prev.voteCounts.a + (choice === 'a' ? 1 : 0),
+        b: prev.voteCounts.b + (choice === 'b' ? 1 : 0)
+      };
+
+      return {
+        ...prev,
+        votes: { a: votesA, b: votesB },
+        voterMap,
+        voteCounts
+      };
+    });
+  }, []);
+
+  /* -------------------- Stage Computations -------------------- */
+  function computeLeader(battle) {
+    const { a, b } = battle.voteCounts;
+    if (a === b) {
+      // Tie -> random
+      return Math.random() < 0.5 ? 'a' : 'b';
+    }
+    return a > b ? 'a' : 'b';
   }
 
-  function computeWinner(b) {
-    const av = b.votes.a.size;
-    const bv = b.votes.b.size;
-    if (av === bv) return null;
-    return av > bv ? 'a' : 'b';
+  function computeWinner(battle) {
+    const { a, b } = battle.voteCounts;
+    if (a === b) return null; // tie (caller could implement tie-break)
+    return a > b ? 'a' : 'b';
   }
 
-  function stageToSegment(stage, b) {
+  function stageToSegment(stage, battle) {
     const r1 = SEGMENT_DURATIONS.round1;
     const r2 = SEGMENT_DURATIONS.round2;
     switch (stage) {
       case 'round1A': return { side: 'a', offsetMs: 0, durationMs: r1 };
       case 'round1B': return { side: 'b', offsetMs: 0, durationMs: r1 };
-      case 'round2First': return { side: b.leader, offsetMs: r1, durationMs: r2 };
-      case 'round2Second': return { side: b.leader === 'a' ? 'b' : 'a', offsetMs: r1, durationMs: r2 };
+      case 'round2First': return { side: battle.leader, offsetMs: r1, durationMs: r2 };
+      case 'round2Second': return { side: battle.leader === 'a' ? 'b' : 'a', offsetMs: r1, durationMs: r2 };
       default: return null;
     }
   }
 
+  /* -------------------- Stage Advance & Scheduling -------------------- */
   function advanceStage(snapshot) {
     setCurrentBattle(prev => {
       const b = snapshot || prev;
@@ -175,9 +218,10 @@ export default function useBattleEngine(spotifyClientId) {
       if (nextStage === 'decideLeader') {
         updated.leader = computeLeader(updated);
       }
+
       if (nextStage === 'finished') {
         updated.winner = computeWinner(updated);
-        console.log(LOG, 'Battle finished. Winner:', updated.winner);
+        console.log(LOG, 'Battle finished. Votes:', updated.voteCounts, 'Winner:', updated.winner);
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.main = setTimeout(() => {
             tryStartBattle();
@@ -192,8 +236,8 @@ export default function useBattleEngine(spotifyClientId) {
         startSegment(segment, updated);
         scheduleSegmentEnd(segment, updated);
       } else {
-        // intro or decideLeader
-        const delay = nextStage === 'decideLeader' ? 300 : 600;
+        // intro / decideLeader quick transitions
+        const delay = nextStage === 'decideLeader' ? 400 : 700;
         timersRef.current.main = setTimeout(() => advanceStage(updated), delay);
       }
 
@@ -203,14 +247,13 @@ export default function useBattleEngine(spotifyClientId) {
   }
 
   function scheduleSegmentEnd(segment, battle) {
-    const targetPerf = performance.now() + segment.durationMs;
-    pendingStageRef.current = { stage: battle.stage, end: targetPerf };
+    const target = performance.now() + segment.durationMs;
+    pendingStageRef.current = { stage: battle.stage, end: target };
 
     const early = Math.max(0, (segment.durationMs - TRANSITION_BUFFER));
     timersRef.current.main = setTimeout(() => {
       const spin = () => {
-        const now = performance.now();
-        if (now >= targetPerf - 6) {
+        if (performance.now() >= target - 6) {
           if (STAGE_GAP_MS > 0) {
             setTimeout(() => advanceStage(battle), STAGE_GAP_MS);
           } else {
@@ -224,7 +267,7 @@ export default function useBattleEngine(spotifyClientId) {
     }, early);
   }
 
-  function hasFullEnv() {
+  function hasFullPlaybackEnv() {
     return PLAYBACK_MODE === 'FULL';
   }
 
@@ -232,8 +275,7 @@ export default function useBattleEngine(spotifyClientId) {
     if (battle.paused) return;
     const track = battle[segment.side];
     if (!track) return;
-
-    if (hasFullEnv()) {
+    if (hasFullPlaybackEnv()) {
       await playSpotifySegment(track, segment.offsetMs);
     } else {
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
@@ -241,23 +283,11 @@ export default function useBattleEngine(spotifyClientId) {
   }
 
   async function playSpotifySegment(track, offsetMs) {
-    const tokensRaw = localStorage.getItem('spotifyTokens');
-    if (!tokensRaw) {
-      console.warn(LOG, 'No tokens for FULL playback, fallback preview');
-      playPreviewSegment(track, 'a', offsetMs, SEGMENT_DURATIONS.round1);
-      return;
-    }
+    const raw = localStorage.getItem('spotifyTokens');
+    if (!raw) return;
     let token;
-    try { token = JSON.parse(tokensRaw).accessToken; } catch {}
-    if (!token) {
-      console.warn(LOG, 'Invalid token JSON, fallback preview');
-      playPreviewSegment(track, 'a', offsetMs, SEGMENT_DURATIONS.round1);
-      return;
-    }
-    if (!track.uri) {
-      console.warn(LOG, 'Missing track.uri for full playback', track);
-      return;
-    }
+    try { token = JSON.parse(raw).accessToken; } catch {}
+    if (!token || !track.uri) return;
     try {
       await fetch('https://api.spotify.com/v1/me/player/play', {
         method: 'PUT',
@@ -267,15 +297,11 @@ export default function useBattleEngine(spotifyClientId) {
         },
         body: JSON.stringify({
           uris: [track.uri],
-          position_ms: offsetMs
+            position_ms: offsetMs
         })
       });
-      console.log(LOG, 'FULL play', track.name, 'offset', offsetMs);
     } catch (e) {
-      console.warn(LOG, 'FULL play failed', e);
-      if (track.preview_url) {
-        playPreviewSegment(track, 'a', offsetMs, SEGMENT_DURATIONS.round1);
-      }
+      console.warn(LOG, 'Full playback failed, consider preview fallback', e);
     }
   }
 
@@ -284,6 +310,15 @@ export default function useBattleEngine(spotifyClientId) {
     const seconds = Math.max(0.5, Math.min(durationMs, 30_000 - offsetMs) / 1000);
     playPreview(`SEG-${side}`, track.preview_url, seconds);
   }
+
+  /* -------------------- Timer Cleanup -------------------- */
+  const clearTimers = () => {
+    if (timersRef.current.main) clearTimeout(timersRef.current.main);
+    if (timersRef.current.raf) cancelAnimationFrame(timersRef.current.raf);
+    timersRef.current.main = null;
+    timersRef.current.raf = null;
+    pendingStageRef.current = null;
+  };
 
   useEffect(() => clearTimers, []);
 

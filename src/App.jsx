@@ -41,15 +41,17 @@ export default function App() {
   const openSearch = () => setModalOpen(true);
   const closeSearch = () => setModalOpen(false);
 
-  const votesA = battle?.votes?.a?.size || 0;
-  const votesB = battle?.votes?.b?.size || 0;
+  const votesA = battle?.voteCounts?.a ?? battle?.votes?.a?.size ?? 0;
+  const votesB = battle?.voteCounts?.b ?? battle?.votes?.b?.size ?? 0;
 
   return (
     <div className="app-grid">
+      {/* Left: Settings */}
       <div style={{display:'flex',flexDirection:'column',minHeight:0}}>
         <SettingsPanel />
       </div>
 
+      {/* Center */}
       <div style={{display:'flex',flexDirection:'column',gap:'1rem',minHeight:0,overflow:'hidden'}}>
         <div style={{display:'flex',gap:'0.5rem',flexWrap:'wrap'}}>
           <button className="btn-outline" onClick={startBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
@@ -83,7 +85,7 @@ export default function App() {
               <span style={{color:'#4ade80'}}><strong>Leader:</strong> {battle.leader.toUpperCase()}</span>
             )}
             {battle.winner && (
-              <span style={{color:'#4ade80'}}><strong>Winner:</strong> {battle.winner.toUpperCase()}</span>
+              <span style={{color:'#4ade80'}}><strong>Winner:</strong> {battle.winner?.toUpperCase()}</span>
             )}
             {battle.paused && <span style={{color:'#fbbf24'}}>Paused</span>}
           </div>
@@ -99,6 +101,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Right: Chat */}
       <div style={{display:'flex',flexDirection:'column',minHeight:0,gap:'1rem'}}>
         <div style={{
           border:'1px solid rgba(255,255,255,0.12)',

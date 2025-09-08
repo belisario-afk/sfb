@@ -72,7 +72,6 @@ export function AppProvider({ children }) {
     localStorage.getItem('relayUrl') || 'wss://sfb-qrzl.onrender.com/ws'
   );
 
-  // Stable token getter (does NOT trigger re-renders)
   const getAccessToken = useCallback(async () => {
     if (!spotifyClientId) return null;
     try {
@@ -96,7 +95,6 @@ export function AppProvider({ children }) {
     grantedScopes.includes('user-modify-playback-state') &&
     grantedScopes.includes('user-read-playback-state');
 
-  // Spotify Web Playback (only meaningful in FULL mode)
   const spotifyWebPlayer = useSpotifyWebPlayer({
     getAccessToken,
     hasStreamingScopes,
@@ -105,7 +103,6 @@ export function AppProvider({ children }) {
     autoTransfer: true
   });
 
-  // Battle engine
   const battleEngine = useBattleEngine(
     spotifyClientId ||
       localStorage.getItem('customSpotifyClientId') ||
@@ -125,7 +122,6 @@ export function AppProvider({ children }) {
     setSpotifyPlayer: setEngineSpotifyPlayer
   } = battleEngine;
 
-  // Provide player instance to engine when ready + FULL mode
   useEffect(() => {
     if (isFullPlayback() && spotifyWebPlayer.player) {
       setEngineSpotifyPlayer?.(spotifyWebPlayer.player);
@@ -165,7 +161,7 @@ export function AppProvider({ children }) {
     startSpotifyAuth(spotifyClientId);
   }, [spotifyClientId]);
 
-  // PKCE exchange on redirect
+  // PKCE exchange
   useEffect(() => {
     const { code, error } = parseQueryParams();
     if (error) {

@@ -48,6 +48,9 @@ export default function SettingsPanel() {
   const grantedScopes = authState?.scope ? authState.scope.split(/\s+/) : [];
   const missingScopes = requiredScopes.filter(s => !grantedScopes.includes(s));
 
+  const votesA = battle?.voteCounts?.a ?? battle?.votes?.a?.size ?? 0;
+  const votesB = battle?.voteCounts?.b ?? battle?.votes?.b?.size ?? 0;
+
   return (
     <div className="panel" style={{flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:'1rem'}}>
       <h3 style={{marginTop:0}}>Settings</h3>
@@ -121,9 +124,9 @@ export default function SettingsPanel() {
         <h4 style={{margin:'0 0 0.4rem'}}>Playback</h4>
         <div style={{fontSize:'0.6rem', lineHeight:'0.95rem'}}>
           <div>Mode: <strong>{PLAYBACK_MODE}</strong></div>
-          <div>Round1: {SEGMENT_DURATIONS.round1/1000}s</div>
-          <div>Round2: {SEGMENT_DURATIONS.round2/1000}s</div>
-          <div>Pause Between Segments: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
+          <div>Round1 Segment: {SEGMENT_DURATIONS.round1/1000}s</div>
+            <div>Round2 Segment: {SEGMENT_DURATIONS.round2/1000}s</div>
+          <div>Segment Pause: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
         </div>
         {PLAYBACK_MODE === 'FULL' && (
           <div style={{marginTop:'0.5rem', fontSize:'0.6rem', lineHeight:'0.9rem'}}>
@@ -139,25 +142,8 @@ export default function SettingsPanel() {
                 Missing streaming / playback scopes. Re-auth needed.
               </div>
             )}
-            <div style={{display:'flex', gap:'0.45rem', flexWrap:'wrap', marginTop:'0.55rem'}}>
-              <button
-                className="btn-outline"
-                disabled={!spotifyPlayer?.deviceId}
-                onClick={() => spotifyPlayer?.transferPlayback?.()}
-                style={{fontSize:'0.6rem'}}
-              >
-                Transfer Playback
-              </button>
-              <button
-                className="btn-outline"
-                onClick={() => spotifyPlayer?.reconnect?.()}
-                style={{fontSize:'0.6rem'}}
-              >
-                Reconnect Player
-              </button>
-            </div>
             <div style={{fontSize:'0.5rem', opacity:0.55, marginTop:'0.45rem'}}>
-              If silent: open Spotify app once, then Transfer Playback.
+              If silent: open Spotify app once, then press Transfer Playback in Playback section (below) or reconnect.
             </div>
           </div>
         )}
@@ -189,7 +175,7 @@ export default function SettingsPanel() {
             />
             <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
             <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-              /ws appended automatically.
+              /ws appended if missing.
             </div>
           </div>
         )}
@@ -204,7 +190,7 @@ export default function SettingsPanel() {
         />
         <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveClientId}>Save Client ID</button>
         <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-          After changing Client ID: Logout & Re-Login.
+          After changing ID: Logout & Re-Login.
         </div>
       </section>
 
@@ -218,7 +204,8 @@ export default function SettingsPanel() {
         </div>
         {battle && (
           <div style={{fontSize:'0.55rem', opacity:0.65, marginTop:'0.4rem'}}>
-            Stage: {battle.stage} | Votes A: {battle.votes?.a?.size || 0} / B: {battle.votes?.b?.size || 0}
+            Stage: {battle.stage} | Votes A: {votesA} / B: {votesB}
+            {battle.winner && <span style={{marginLeft:8, color:'#4ade80'}}>Winner: {battle.winner.toUpperCase()}</span>}
           </div>
         )}
       </section>
@@ -227,8 +214,8 @@ export default function SettingsPanel() {
         <h4 style={{margin:'0 0 0.4rem'}}>Help</h4>
         <ul style={{fontSize:'0.65rem', lineHeight:'0.9rem', opacity:0.85, paddingLeft:'1.1rem'}}>
           <li><code>!battle &lt;query&gt;</code> add top track</li>
-          <li><code>!vote A</code> / <code>!vote B</code></li>
-          <li>Shortcut keys: n(next) s(skip) p(pause) q(demo)</li>
+          <li><code>!vote A</code> / <code>!vote B</code> (one vote per user per battle)</li>
+          <li>Keys: <code>n</code>=next, <code>s</code>=skip, <code>p</code>=pause, <code>q</code>=demo</li>
         </ul>
       </section>
     </div>
