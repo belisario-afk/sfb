@@ -1,14 +1,14 @@
-# Song Fight Battle - TikTok Relay Server (Updated)
+# Song Fight Battle - TikTok Relay Server (Auto-Build Edition)
 
-This optional Node.js WebSocket relay listens to a TikTok Live chat and forwards chat messages to browser clients.
+This version attempts to build `tiktok-live-connector` from its GitHub source if the prebuilt `dist/index.js` is absent.
 
-## Why Was It Updated?
+## If You Just Want It to Work (No TikTok Right Now)
 
-- Previous config used `tiktok-live-connector@^1.7.0` which does not exist on npm, causing Render build failures.
-- Converted to CommonJS for compatibility because the library publishes CJS.
-- Correctly uses the `WebcastPushConnection` API.
+Set environment variable `TIKTOK_DISABLE=1` (Render or local).  
+Use Simulation mode in the client.  
+You can enable TikTok later by unsetting that variable.
 
-## Install & Run Locally
+## Install & Run
 
 ```bash
 cd server-relay
@@ -16,34 +16,28 @@ npm install
 npm start
 ```
 
-Endpoint:
-- Health: `http://localhost:4000/`
-- WebSocket: `ws://localhost:4000/ws`
+The `postinstall` script tries to:
+1. Detect absence of `node_modules/tiktok-live-connector/dist/index.js`
+2. Run `npm install` and `npm run build` (or `compile`) inside that dependency.
 
 ## Environment Variables
 
 | Name | Required | Description |
 |------|----------|-------------|
-| `TIKTOK_USERNAME` | Yes | TikTok username to connect to (no @) |
-| `LOG_LEVEL` | No | `info` (default) or `debug` for verbose chat logging |
-| `PORT` | No | Override port (default 4000) |
+| `TIKTOK_USERNAME` | Yes (unless disabled) | TikTok username (no @) |
+| `LOG_LEVEL` | No | `info` or `debug` |
+| `PORT` | No | Default 4000 |
+| `TIKTOK_DISABLE` | No | Skip TikTok connection entirely |
 
-## Render Deployment
+## Routes
 
-1. In Render, create new Web Service.
-2. Root Directory: `server-relay`
-3. Build Command: `npm install`
-4. Start Command: `npm start`
-5. Add Environment Variables:
-   - `TIKTOK_USERNAME=lmohss`
-   - `LOG_LEVEL=info`
-6. (Optional) Add `NODE_VERSION=20` to force Node 20.
+| Path | Method | Purpose |
+|------|--------|---------|
+| `/` | GET | Health/status JSON |
+| `/ws` | WS | Chat stream |
+| `/inject` | POST | Manually inject a chat message (payload: `{ "username": "...", "message": "!vote A" }`) |
 
-`render.yaml` included does this automatically.
-
-## WebSocket Message Format
-
-Each forwarded chat line:
+## WebSocket Chat Message Format
 
 ```json
 {
@@ -54,27 +48,24 @@ Each forwarded chat line:
 }
 ```
 
-## Client Integration
-
-In the main app settings:
-- Set Chat Mode: Relay
-- Relay URL example: `wss://your-render-service.onrender.com/ws`
-
-## Reconnect Logic
-
-If TikTok disconnects:
-- Automatic reconnect after 10s.
-- If initial connect fails, retry after 15s.
+Injected messages include `"injected": true`.
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| Build fails: version not found | Adjust `tiktok-live-connector` version (run `npm view tiktok-live-connector versions`) |
-| No messages | Confirm the TikTok account is actually live |
-| CORS issues | Relay only serves WS + a JSON status; no complex CORS needed |
-| Node version mismatch | Ensure `.nvmrc` or `NODE_VERSION=20` in environment |
+| Problem | Action |
+|---------|--------|
+| Build fails inside dependency | Set `TIKTOK_DISABLE=1` to keep relay alive; investigate logs |
+| No dist/index.js produced | Upstream changed build scripts; fork repo and prebuild or vendor minimal code |
+| Reconnect loops | Stream offline or network instability |
+| Long build time | Expected (building dependency). Consider caching or a fork with prebuilt dist |
+
+## Strategy If Auto-Build Fails Repeatedly
+
+1. Fork the TikTok connector repo.
+2. Run its build locally; commit the built `dist/` into your fork.
+3. Point dependency to your fork: `"tiktok-live-connector": "github:<you>/TikTok-Live-Connector#stable-prebuilt"`
+4. Remove the postinstall script if no longer needed.
 
 ## License
 
-MIT (inherits from parent repo).
+MIT (inherits parent project).

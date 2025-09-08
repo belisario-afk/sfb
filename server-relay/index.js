@@ -8,14 +8,29 @@ const PORT = process.env.PORT || 4000;
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 app.get('/', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'sfb-relay',
     tiktok: process.env.TIKTOK_USERNAME || 'NOT_SET',
+    disabled: !!process.env.TIKTOK_DISABLE,
     uptime_sec: process.uptime()
   });
+});
+
+// Manual injection endpoint (optional) to push synthetic chat for testing
+app.post('/inject', (req, res) => {
+  const { username='tester', message='!vote A' } = req.body || {};
+  broadcast({
+    type: 'chat',
+    username,
+    message,
+    timestamp: Date.now(),
+    injected: true
+  });
+  res.json({ ok: true });
 });
 
 const server = http.createServer(app);
@@ -57,6 +72,9 @@ initTikTokRelay({
       message: msg.comment,
       timestamp: Date.now()
     });
+  },
+  onUnavailable: () => {
+    console.warn('[Relay] TikTok module unavailable; relay still serving WS.');
   }
 });
 

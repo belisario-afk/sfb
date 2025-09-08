@@ -1,11 +1,12 @@
 {
   "name": "sfb-relay",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "TikTok chat relay for Song Fight Battle (optional)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "NODE_ENV=development node index.js"
+    "dev": "NODE_ENV=development node index.js",
+    "postinstall": "node scripts/build-tiktok-lib.js"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -13,7 +14,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "tiktok-live-connector": "^0.0.36",
-    "ws": "^8.17.0"
+    "ws": "^8.17.0",
+    "tiktok-live-connector": "github:zerodytrash/TikTok-Live-Connector"
   }
 }
