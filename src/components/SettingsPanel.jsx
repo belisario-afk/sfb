@@ -37,14 +37,6 @@ export default function SettingsPanel() {
   };
   const saveRelay = () => setRelayUrl(localRelay.trim());
 
-  const accessToken = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('spotifyTokens') || 'null')?.accessToken;
-    } catch {
-      return null;
-    }
-  })();
-
   function scopeStatus() {
     if (!authState) return 'Not Logged In';
     if (authChecking) return 'Checking...';
@@ -129,26 +121,25 @@ export default function SettingsPanel() {
         <h4 style={{margin:'0 0 0.4rem'}}>Playback</h4>
         <div style={{fontSize:'0.6rem', lineHeight:'0.95rem'}}>
           <div>Mode: <strong>{PLAYBACK_MODE}</strong></div>
-          <div>Round1 Segment: {SEGMENT_DURATIONS.round1/1000}s</div>
-          <div>Round2 Segment: {SEGMENT_DURATIONS.round2/1000}s</div>
-          <div>Segment Pause: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
+          <div>Round1: {SEGMENT_DURATIONS.round1/1000}s</div>
+          <div>Round2: {SEGMENT_DURATIONS.round2/1000}s</div>
+          <div>Pause Between Segments: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
         </div>
-
         {PLAYBACK_MODE === 'FULL' && (
           <div style={{marginTop:'0.5rem', fontSize:'0.6rem', lineHeight:'0.9rem'}}>
             <div>Player Status: <strong>{spotifyPlayer?.status}</strong></div>
             <div>Device ID: {spotifyPlayer?.deviceId || '—'}</div>
-            {!spotifyPlayer?.hasStreamingScope && (
-              <div style={{color:'#fbbf24', fontSize:'0.55rem', marginTop:'0.25rem'}}>
-                Missing streaming or modify-playback scope – authorize again.
-              </div>
-            )}
             {spotifyPlayer?.error && (
               <div style={{color:'#ff6b6b', fontSize:'0.55rem', marginTop:'0.25rem'}}>
                 {spotifyPlayer.error}
               </div>
             )}
-            <div style={{display:'flex', gap:'0.45rem', flexWrap:'wrap', marginTop:'0.5rem'}}>
+            {!spotifyPlayer?.hasStreamingScope && (
+              <div style={{color:'#fbbf24', fontSize:'0.55rem', marginTop:'0.3rem'}}>
+                Missing streaming / playback scopes. Re-auth needed.
+              </div>
+            )}
+            <div style={{display:'flex', gap:'0.45rem', flexWrap:'wrap', marginTop:'0.55rem'}}>
               <button
                 className="btn-outline"
                 disabled={!spotifyPlayer?.deviceId}
@@ -164,29 +155,15 @@ export default function SettingsPanel() {
               >
                 Reconnect Player
               </button>
-              <button
-                className="btn-outline"
-                disabled={!accessToken}
-                onClick={() => {
-                  fetch('https://api.spotify.com/v1/me/player/devices', {
-                    headers: { Authorization: `Bearer ${accessToken}` }
-                  })
-                    .then(r => r.json())
-                    .then(d => console.log('[Spotify] Devices:', d));
-                }}
-                style={{fontSize:'0.6rem'}}
-              >
-                List Devices (console)
-              </button>
             </div>
-            <div style={{fontSize:'0.5rem', opacity:0.55, marginTop:'0.4rem'}}>
-              Once status is "ready" but silent: click Transfer Playback (Spotify may need focus in another tab/client first).
+            <div style={{fontSize:'0.5rem', opacity:0.55, marginTop:'0.45rem'}}>
+              If silent: open Spotify app once, then Transfer Playback.
             </div>
           </div>
         )}
         {PLAYBACK_MODE !== 'FULL' && (
           <div style={{marginTop:'0.5rem', fontSize:'0.55rem', opacity:0.7}}>
-            Using preview / fallback mode (30s segments or silence if no preview).
+            Using preview fallback mode.
           </div>
         )}
       </section>
@@ -208,11 +185,11 @@ export default function SettingsPanel() {
               className="input"
               value={localRelay}
               onChange={(e)=>setLocalRelay(e.target.value)}
-              placeholder="wss://your-relay.example/ws"
+              placeholder="wss://your-relay/ws"
             />
             <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
             <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-              /ws will be appended automatically if missing.
+              /ws appended automatically.
             </div>
           </div>
         )}
@@ -227,7 +204,7 @@ export default function SettingsPanel() {
         />
         <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveClientId}>Save Client ID</button>
         <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-          After changing Client ID: Logout & Login again.
+          After changing Client ID: Logout & Re-Login.
         </div>
       </section>
 
@@ -249,12 +226,9 @@ export default function SettingsPanel() {
       <section>
         <h4 style={{margin:'0 0 0.4rem'}}>Help</h4>
         <ul style={{fontSize:'0.65rem', lineHeight:'0.9rem', opacity:0.85, paddingLeft:'1.1rem'}}>
-          <li><code>!battle &lt;query&gt;</code> add top track of query</li>
-          <li><code>!vote A</code> / <code>!vote B</code> vote current battle</li>
-          <li>Keys: <code>n</code>=next, <code>s</code>=skip stage, <code>q</code>=demo, <code>p</code>=pause</li>
-          {PLAYBACK_MODE === 'FULL' && (
-            <li>If silent after ready: Use Transfer Playback.</li>
-          )}
+          <li><code>!battle &lt;query&gt;</code> add top track</li>
+          <li><code>!vote A</code> / <code>!vote B</code></li>
+          <li>Shortcut keys: n(next) s(skip) p(pause) q(demo)</li>
         </ul>
       </section>
     </div>

@@ -72,31 +72,35 @@ export function AppProvider({ children }) {
     localStorage.getItem('relayUrl') || 'wss://sfb-qrzl.onrender.com/ws'
   );
 
-  // -------------------------
-  // Spotify access token getter for player hook
-  // -------------------------
+  // Stable token getter (does NOT trigger re-renders)
   const getAccessToken = useCallback(async () => {
-    // ensureFreshToken already updates localStorage; we rely on that
     if (!spotifyClientId) return null;
     try {
-      const refreshed = await ensureFreshToken(spotifyClientId);
-      return refreshed?.accessToken || refreshed?.access_token || refreshed?.access_token;
+      const fresh = await ensureFreshToken(spotifyClientId);
+      return fresh?.accessToken;
     } catch {
-      const cachedRaw = localStorage.getItem('spotifyTokens');
-      if (cachedRaw) {
+      const raw = localStorage.getItem('spotifyTokens');
+      if (raw) {
         try {
-          const cached = JSON.parse(cachedRaw);
-          return cached?.accessToken || cached?.access_token;
+          return JSON.parse(raw).accessToken;
         } catch {}
       }
       return null;
     }
   }, [spotifyClientId]);
 
-  // Web Playback Player Hook (only meaningful in FULL mode)
+  const hasScopes = hasRequiredScopes(authState);
+  const grantedScopes = authState?.scope ? authState.scope.split(/\s+/) : [];
+  const hasStreamingScopes =
+    grantedScopes.includes('streaming') &&
+    grantedScopes.includes('user-modify-playback-state') &&
+    grantedScopes.includes('user-read-playback-state');
+
+  // Spotify Web Playback (only meaningful in FULL mode)
   const spotifyWebPlayer = useSpotifyWebPlayer({
     getAccessToken,
-    name: 'Track Battle Player',
+    hasStreamingScopes,
+    name: 'Battle Arena Player',
     volume: 0.8,
     autoTransfer: true
   });
@@ -118,27 +122,17 @@ export function AppProvider({ children }) {
     vote,
     forceNextStage,
     togglePause,
-    spotifyPlayer: engineSpotifyPlayer, // internal reference if used
     setSpotifyPlayer: setEngineSpotifyPlayer
   } = battleEngine;
 
-  // Provide player to engine if FULL
+  // Provide player instance to engine when ready + FULL mode
   useEffect(() => {
-    if (isFullPlayback()) {
+    if (isFullPlayback() && spotifyWebPlayer.player) {
       setEngineSpotifyPlayer?.(spotifyWebPlayer.player);
     }
   }, [spotifyWebPlayer.player, setEngineSpotifyPlayer]);
 
-  // Chat
   const chat = useChat({ mode: chatMode, relayUrl });
-
-  if (typeof window !== 'undefined') {
-    window.__SFB_DEBUG = {
-      ...(window.__SFB_DEBUG || {}),
-      chat,
-      spotifyWebPlayerStatus: spotifyWebPlayer.status
-    };
-  }
 
   const normalizeRelay = useCallback((val) => {
     let v = (val || '').trim();
@@ -171,7 +165,7 @@ export function AppProvider({ children }) {
     startSpotifyAuth(spotifyClientId);
   }, [spotifyClientId]);
 
-  // PKCE exchange
+  // PKCE exchange on redirect
   useEffect(() => {
     const { code, error } = parseQueryParams();
     if (error) {
@@ -199,9 +193,9 @@ export function AppProvider({ children }) {
     }
   }, [spotifyClientId]);
 
-  // Continuous refresh
+  // Token refresh loop
   useEffect(() => {
-    let dead = false;
+    let stop = false;
     let t;
     async function loop() {
       if (!spotifyClientId) {
@@ -210,7 +204,7 @@ export function AppProvider({ children }) {
       }
       try {
         const fresh = await ensureFreshToken(spotifyClientId);
-        if (!dead && fresh) setAuthState(fresh);
+        if (!stop && fresh) setAuthState(fresh);
       } catch (e) {
         console.warn('[Auth] refresh error', e);
       }
@@ -218,23 +212,21 @@ export function AppProvider({ children }) {
     }
     loop();
     return () => {
-      dead = true;
+      stop = true;
       clearTimeout(t);
     };
   }, [spotifyClientId]);
 
-  // Chat command subscription
+  // Chat commands
   useEffect(() => {
-    if (!chat || typeof chat.subscribe !== 'function') return;
+    if (!chat?.subscribe) return;
     const handler = (msg) => {
       const raw = (msg?.text || '').trim();
-      const txt = raw.toLowerCase();
-      if (txt.startsWith('!vote ')) {
-        const choice = txt.split(/\s+/)[1];
-        if (choice === 'a' || choice === 'b') {
-          vote(choice, msg.user || 'anon');
-        }
-      } else if (txt.startsWith('!battle ')) {
+      const lower = raw.toLowerCase();
+      if (lower.startsWith('!vote ')) {
+        const side = lower.split(/\s+/)[1];
+        if (side === 'a' || side === 'b') vote(side, msg.user || 'anon');
+      } else if (lower.startsWith('!battle ')) {
         const q = raw.slice('!battle '.length).trim();
         if (q) addTopTrackByQuery(q);
       }
@@ -249,10 +241,7 @@ export function AppProvider({ children }) {
         console.warn('[AddTrack] Need Spotify auth for search.');
         return;
       }
-      const top = await searchTopTrackByQuery(
-        authState.accessToken,
-        query
-      );
+      const top = await searchTopTrackByQuery(authState.accessToken, query);
       if (top) {
         addTrack(top);
         console.log('[AddTrack] Added:', top.name);
@@ -284,26 +273,15 @@ export function AppProvider({ children }) {
     }
   }, []);
 
-  const hasScopes = hasRequiredScopes(authState);
-
-  // Determine streaming scope presence for UI messaging
-  const grantedScopes = authState?.scope
-    ? authState.scope.split(/\s+/)
-    : [];
-  const hasStreamingScope =
-    grantedScopes.includes('streaming') &&
-    grantedScopes.includes('user-modify-playback-state');
-
-  const spotifyPlayerInfo = {
+  const spotifyPlayer = {
     mode: PLAYBACK_MODE,
-    expectedFull: isFullPlayback(),
+    ready: spotifyWebPlayer.ready,
     status: spotifyWebPlayer.status,
     deviceId: spotifyWebPlayer.deviceId,
-    ready: spotifyWebPlayer.ready,
     error: spotifyWebPlayer.error,
     transferPlayback: spotifyWebPlayer.transferPlayback,
     reconnect: spotifyWebPlayer.reconnect,
-    hasStreamingScope
+    hasStreamingScope: hasStreamingScopes
   };
 
   const value = {
@@ -341,11 +319,12 @@ export function AppProvider({ children }) {
     modalOpen,
     setModalOpen,
 
-    // unified player info (FULL only meaningful if mode FULL + scopes)
-    spotifyPlayer: spotifyPlayerInfo
+    spotifyPlayer
   };
 
   return (
-    <AppContext.Provider value={value}>{children}</AppContext.Provider>
+    <AppContext.Provider value={value}>
+      {children}
+    </AppContext.Provider>
   );
 }
