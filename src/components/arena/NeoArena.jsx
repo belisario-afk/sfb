@@ -30,7 +30,7 @@ export default function NeoArena() {
     return (
       <div className="neo-arena glass-surface" ref={arenaRef}>
         <div className="neo-arena-empty">
-          <div className="neo-title">Neo Arena</div>
+          <div className="neo-title">NIGGA Arena</div>
           <div className="neo-subtitle">Add tracks to start the battle</div>
         </div>
       </div>
