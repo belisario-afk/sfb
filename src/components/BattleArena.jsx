@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
-import './battle-animations.css';
 
 export default function BattleArena() {
   const { battle } = useAppContext();
@@ -18,65 +17,63 @@ export default function BattleArena() {
 
   if (!battle) {
     return (
-      <div className="arena-empty">
-        <div className="arena-placeholder">No active battle</div>
+      <div className="battle-arena">
+        <div className="arena-empty">
+          <div className="arena-placeholder">No active battle</div>
+        </div>
       </div>
     );
   }
 
-  const a = battle.a;
-  const b = battle.b;
-
-  const winnerSide = battle.stage === 'finished' ? battle.winner : null;
-  const loserSide = winnerSide ? (winnerSide === 'a' ? 'b' : 'a') : null;
+  const winner = battle.stage === 'finished' ? battle.winner : null;
+  const loser = winner ? (winner === 'a' ? 'b' : 'a') : null;
 
   return (
     <div className="battle-arena">
-      <BackgroundReactive activeSide={activeSide} winner={winnerSide} />
-
+      <div className={[
+        'arena-bg',
+        activeSide ? `bg-active-${activeSide}` : '',
+        winner ? 'bg-finale' : ''
+      ].join(' ')} />
       <div className="album-side left">
         <AlbumCard
-          track={a}
+          track={battle.a}
           side="A"
-          active={activeSide === 'a'}
-          winner={winnerSide === 'a'}
-          loser={loserSide === 'a'}
-          leader={battle.leader === 'a'}
+          isActive={activeSide === 'a'}
+          isWinner={winner === 'a'}
+          isLoser={loser === 'a'}
+          isLeader={battle.leader === 'a'}
         />
       </div>
-
       <NeonVS
         stage={battle.stage}
-        leader={battle.leader}
-        winner={winnerSide}
+        winner={winner}
+        leaderKnown={!!battle.leader && !winner}
       />
-
       <div className="album-side right">
         <AlbumCard
-          track={b}
+          track={battle.b}
           side="B"
-          active={activeSide === 'b'}
-          winner={winnerSide === 'b'}
-          loser={loserSide === 'b'}
-          leader={battle.leader === 'b'}
+          isActive={activeSide === 'b'}
+          isWinner={winner === 'b'}
+          isLoser={loser === 'b'}
+          isLeader={battle.leader === 'b'}
         />
       </div>
     </div>
   );
 }
 
-function AlbumCard({ track, side, active, winner, loser, leader }) {
+function AlbumCard({ track, side, isActive, isWinner, isLoser, isLeader }) {
   const art = track?.album?.images?.[0]?.url;
   return (
-    <div
-      className={[
-        'album-card',
-        active ? 'is-active' : '',
-        winner ? 'is-winner' : '',
-        loser ? 'is-loser' : '',
-        leader && !winner ? 'is-leader' : ''
-      ].join(' ')}
-    >
+    <div className={[
+      'album-card',
+      isActive ? 'is-active' : '',
+      isWinner ? 'is-winner' : '',
+      isLoser ? 'is-loser' : '',
+      isLeader && !isWinner ? 'is-leader' : ''
+    ].join(' ')}>
       <div className="album-inner">
         <div className="album-art-wrap">
           {art
@@ -86,7 +83,7 @@ function AlbumCard({ track, side, active, winner, loser, leader }) {
         </div>
         <div className="album-meta">
           <div className="album-side-label">{side}</div>
-          <div className="album-title" title={track?.name}>{track?.name}</div>
+            <div className="album-title" title={track?.name}>{track?.name}</div>
           <div className="album-artists">
             {(track?.artists || []).map(a => a.name).join(', ')}
           </div>
@@ -96,29 +93,15 @@ function AlbumCard({ track, side, active, winner, loser, leader }) {
   );
 }
 
-function NeonVS({ stage, leader, winner }) {
+function NeonVS({ stage, winner, leaderKnown }) {
   return (
     <div className={[
       'neon-vs',
       stage === 'intro' ? 'vs-intro' : '',
       winner ? 'vs-winner' : '',
-      leader && !winner ? 'vs-leader-known' : ''
-    ].join(' ')}
-    >
-      <div className="vs-glow" />
+      leaderKnown && !winner ? 'vs-leader-known' : ''
+    ].join(' ')}>
       <span className="vs-text">{winner ? 'WIN' : 'VS'}</span>
     </div>
-  );
-}
-
-function BackgroundReactive({ activeSide, winner }) {
-  // Could hook into audio analyser; here we vary classes
-  return (
-    <div className={[
-      'arena-bg',
-      activeSide ? `bg-active-${activeSide}` : '',
-      winner ? 'bg-finale' : ''
-    ].join(' ')}
-    />
   );
 }
