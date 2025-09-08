@@ -1,4 +1,5 @@
 /* SFB TikTok Relay (CJS)
+   - Works with tiktok-live-connector v1.x (TikTokLiveConnection default) and v2.x (WebcastPushConnection named).
    - WS path: /ws
    - Client subscribe payload:
        { "type":"subscribe", "platform":"tiktok", "room":"<tiktok_username>" }
@@ -15,17 +16,34 @@ const PORT = process.env.PORT || 10000;
 const DEFAULT_ROOM = (process.env.TIKTOK_USERNAME || '').trim();
 const SERVICE_NAME = process.env.SERVICE_NAME || 'sfb-relay';
 
-let TikTokLiveConnection = null;
+let ConnectorCtor = null;
 let connectorVersion = 'unknown';
-
+let connectorName = 'unknown';
 try {
-  // 2.x may export as ESM default; 1.x as CJS
   const mod = require('tiktok-live-connector');
-  TikTokLiveConnection = mod && mod.default ? mod.default : mod;
+  // v1: module is a constructor; v1 ESM: default is constructor;
+  // v2: named export WebcastPushConnection
+  if (typeof mod === 'function') {
+    ConnectorCtor = mod;
+    connectorName = 'TikTokLiveConnection(default)';
+  } else if (mod && typeof mod.default === 'function') {
+    ConnectorCtor = mod.default;
+    connectorName = 'TikTokLiveConnection(default)';
+  } else if (mod && typeof mod.WebcastPushConnection === 'function') {
+    ConnectorCtor = mod.WebcastPushConnection;
+    connectorName = 'WebcastPushConnection';
+  } else if (mod && typeof mod.TikTokLiveConnection === 'function') {
+    ConnectorCtor = mod.TikTokLiveConnection;
+    connectorName = 'TikTokLiveConnection(named)';
+  }
   try {
     connectorVersion = require('tiktok-live-connector/package.json').version || 'unknown';
   } catch {}
-  console.log('[Relay] Loaded tiktok-live-connector v' + connectorVersion);
+  if (ConnectorCtor) {
+    console.log(`[Relay] Loaded tiktok-live-connector v${connectorVersion} (${connectorName})`);
+  } else {
+    console.warn('[Relay] tiktok-live-connector loaded but no compatible constructor export was found.');
+  }
 } catch (e) {
   console.error('[Relay] Failed to load tiktok-live-connector:', e?.message || e);
   console.warn('[Relay] TikTok connector unavailable. Relay will NOT stream live chat.');
@@ -51,8 +69,9 @@ function getStatus() {
     status: 'ok',
     service: SERVICE_NAME,
     tiktok: DEFAULT_ROOM || '',
-    disabled: !TikTokLiveConnection,
+    disabled: !ConnectorCtor,
     connector_version: connectorVersion,
+    connector_name: connectorName,
     uptime_sec: Math.round(process.uptime()),
     activeRooms: active
   };
@@ -67,14 +86,15 @@ function ensureRoom(username) {
   if (!key) return null;
   if (rooms.has(key)) return rooms.get(key);
 
-  if (!TikTokLiveConnection) {
+  if (!ConnectorCtor) {
     console.warn('[Relay] TikTok module unavailable; cannot create room:', key);
     const placeholder = { conn: null, clients: new Set(), refCount: 0 };
     rooms.set(key, placeholder);
     return placeholder;
   }
 
-  const conn = new TikTokLiveConnection(key, {
+  // Options are forward-compatible; unknown keys are ignored in v2.
+  const conn = new ConnectorCtor(key, {
     enableWebsocketUpgrade: true
   });
 
@@ -83,7 +103,7 @@ function ensureRoom(username) {
   conn.on('streamEnd', () => console.log('[Relay] Stream ended for', key));
   conn.on('error', (err) => console.warn('[Relay] TikTok error for', key, err?.message || err));
 
-  // Chat events (2.x and 1.x normalize similarly)
+  // Chat events (v1 and v2 both emit "chat" with similar fields)
   conn.on('chat', (data) => {
     const msg = normalizeChat(data);
     const room = rooms.get(key);
@@ -190,7 +210,7 @@ function scheduleRoomDisconnect(room) {
 }
 
 server.listen(PORT, () => {
-  if (!TikTokLiveConnection) {
+  if (!ConnectorCtor) {
     console.warn('[Relay] TikTok connector unavailable. Relay will NOT stream live chat.');
   }
   console.log(`[Relay] Listening on port ${PORT}`);
