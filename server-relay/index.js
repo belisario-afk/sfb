@@ -1,5 +1,4 @@
 /* SFB TikTok Relay (CJS)
-   - Pin to tiktok-live-connector 1.6.6 (prebuilt)
    - WS path: /ws
    - Client subscribe payload:
        { "type":"subscribe", "platform":"tiktok", "room":"<tiktok_username>" }
@@ -18,7 +17,9 @@ const SERVICE_NAME = process.env.SERVICE_NAME || 'sfb-relay';
 
 let TikTokLiveConnection = null;
 let connectorVersion = 'unknown';
+
 try {
+  // 2.x may export as ESM default; 1.x as CJS
   const mod = require('tiktok-live-connector');
   TikTokLiveConnection = mod && mod.default ? mod.default : mod;
   try {
@@ -82,7 +83,7 @@ function ensureRoom(username) {
   conn.on('streamEnd', () => console.log('[Relay] Stream ended for', key));
   conn.on('error', (err) => console.warn('[Relay] TikTok error for', key, err?.message || err));
 
-  // Chat events (1.6.x)
+  // Chat events (2.x and 1.x normalize similarly)
   conn.on('chat', (data) => {
     const msg = normalizeChat(data);
     const room = rooms.get(key);
