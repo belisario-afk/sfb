@@ -1,8 +1,18 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useAppContext } from './context/AppContext.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
+import BattleArena from './components/BattleArena.jsx';
+
+/**
+ * Updated App.jsx
+ * - Integrates animated BattleArena (album drop + neon VS)
+ * - Shows live vote / leader / winner info
+ * - Keeps queue + chat panels
+ * - Safe guard if context missing
+ * - Adds minimal keyboard shortcuts (n: next battle, s: skip stage, p: pause, q: demo pair)
+ */
 
 export default function App() {
   const ctx = useAppContext();
@@ -36,8 +46,22 @@ export default function App() {
     authState,
     hasScopes,
     beginSpotifyAuth,
-    spotifyPlayer
+    spotifyPlayer,
+    addDemoPair
   } = ctx;
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.key === 'n') nextBattle();
+      else if (e.key === 's') forceNextStage();
+      else if (e.key === 'p') togglePause();
+      else if (e.key === 'q') addDemoPair();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nextBattle, forceNextStage, togglePause, addDemoPair]);
 
   const startBattle = useCallback(() => {
     nextBattle();
@@ -46,30 +70,42 @@ export default function App() {
   const openSearch = () => setModalOpen(true);
   const closeSearch = () => setModalOpen(false);
 
+  const votesA = battle?.votes?.a?.size || 0;
+  const votesB = battle?.votes?.b?.size || 0;
+
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '300px 1fr 340px',
-      gap: '1rem',
-      height: '100vh',
-      padding: '1rem',
-      background: '#0c0f14',
-      color: '#fafafa',
-      boxSizing: 'border-box',
-      fontFamily: 'system-ui, sans-serif'
-    }}>
-      {/* Left column: Settings */}
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <div
+      className="app-grid"
+      style={{
+        /* Fallback inline layout if global styles not loaded */
+        display: 'grid',
+        gridTemplateColumns: '300px 1fr 340px',
+        gap: '1rem',
+        height: '100vh',
+        padding: '1rem',
+        background: '#0c0f14',
+        color: '#fafafa',
+        boxSizing: 'border-box',
+        fontFamily: 'system-ui, sans-serif',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Left: Settings */}
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         <SettingsPanel />
       </div>
 
-      {/* Center column */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0 }}>
+      {/* Center: Arena + Queue */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minHeight: 0, overflow: 'hidden' }}>
+        {/* Control Bar */}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button className="btn-outline" onClick={startBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
-            <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
+          <button className="btn-outline" onClick={startBattle}>
+            {battle ? 'Next Battle' : 'Start Battle'}
+          </button>
+          <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
           <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
           <button className="btn-outline" onClick={openSearch}>Search Tracks</button>
+          <button className="btn-outline" onClick={addDemoPair}>Demo Pair</button>
           {!authState && (
             <button className="btn-outline" onClick={beginSpotifyAuth}>Login Spotify</button>
           )}
@@ -78,9 +114,40 @@ export default function App() {
           )}
         </div>
 
-        <BattleView battle={battle} />
+        {/* Animated Battle Arena */}
+        <div style={{ position: 'relative', minHeight: 340 }}>
+          <BattleArena />
+        </div>
+
+        {/* Score / Stage Info */}
+        {battle && (
+          <div style={{
+            fontSize: '0.6rem',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            padding: '0.4rem 0.55rem',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 8,
+            background: 'rgba(255,255,255,0.03)'
+          }}>
+            <span><strong>Stage:</strong> {battle.stage}</span>
+            <span><strong>Votes A:</strong> {votesA}</span>
+            <span><strong>Votes B:</strong> {votesB}</span>
+            {battle.leader && !battle.winner && (
+              <span style={{ color: '#4ade80' }}><strong>Leader:</strong> {battle.leader.toUpperCase()}</span>
+            )}
+            {battle.winner && (
+              <span style={{ color: '#4ade80' }}><strong>Winner:</strong> {battle.winner.toUpperCase()}</span>
+            )}
+            {battle.paused && <span style={{ color: '#fbbf24' }}>Paused</span>}
+          </div>
+        )}
+
+        {/* Queue */}
         <QueueView queue={queue} />
 
+        {/* Player / scope status */}
         <div style={{ fontSize: '0.5rem', opacity: 0.55 }}>
           Player: {spotifyPlayer?.ready ? 'Ready' : 'Not Ready'}
           {spotifyPlayer?.deviceId && ` (${spotifyPlayer.deviceId.slice(0, 8)}...)`}
@@ -89,7 +156,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Right column: Chat */}
+      {/* Right: Chat */}
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, gap: '1rem' }}>
         <div style={{
           border: '1px solid rgba(255,255,255,0.12)',
@@ -112,6 +179,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* Modal */}
       {modalOpen && (
         <SpotifyTrackSearchModal
           onClose={closeSearch}
@@ -132,90 +200,7 @@ export default function App() {
   );
 }
 
-/* --- Subcomponents --- */
-function BattleView({ battle }) {
-  if (!battle) {
-    return (
-      <div style={{
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: 8,
-        padding: '0.7rem',
-        fontSize: '0.65rem',
-        opacity: 0.65
-      }}>
-        No active battle. Queue tracks or start one.
-      </div>
-    );
-  }
-  const votesA = battle.votes?.a?.size || 0;
-  const votesB = battle.votes?.b?.size || 0;
-  return (
-    <div style={{
-      border: '1px solid rgba(255,255,255,0.15)',
-      borderRadius: 10,
-      padding: '0.9rem',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.6rem'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', opacity: 0.75 }}>
-        <span>Stage: {battle.stage}</span>
-        {battle.round1Leader && <span>Leader: {battle.round1Leader.toUpperCase()}</span>}
-        {battle.winner && <span style={{ color: '#4ade80' }}>Winner: {battle.winner.toUpperCase()}</span>}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-        <TrackCard track={battle.a} label="A" votes={votesA} highlight={battle.winner === 'a'} />
-        <TrackCard track={battle.b} label="B" votes={votesB} highlight={battle.winner === 'b'} />
-      </div>
-      <ProgressHint stage={battle.stage} />
-    </div>
-  );
-}
-
-function TrackCard({ track, label, votes, highlight }) {
-  if (!track) return null;
-  const img = track.album?.images?.[0]?.url;
-  return (
-    <div style={{
-      border: '1px solid ' + (highlight ? '#4ade80' : 'rgba(255,255,255,0.1)'),
-      borderRadius: 8,
-      padding: '0.55rem',
-      display: 'flex',
-      gap: '0.55rem',
-      alignItems: 'center',
-      background: highlight ? 'rgba(74,222,128,0.08)' : 'rgba(255,255,255,0.03)'
-    }}>
-      <div style={{ width: 46, height: 46, borderRadius: 6, overflow: 'hidden', background: '#111', flexShrink: 0 }}>
-        {img && <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.5rem', opacity: 0.55 }}>
-          <span>Side {label}</span>
-          <span>Votes {votes}</span>
-        </div>
-        <div style={{ fontSize: '0.7rem', fontWeight: 600, lineHeight: '0.85rem' }}>{track.name}</div>
-        <div style={{ fontSize: '0.5rem', opacity: 0.6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {(track.artists || []).map(a => a.name).join(', ')}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProgressHint({ stage }) {
-  const map = {
-    intro: 'Battle about to begin...',
-    round1A: 'Side A first segment',
-    round1B: 'Side B first segment',
-    round2A: 'Leader second segment',
-    round2B: 'Challenger second segment',
-    finished: 'Battle finished'
-  };
-  const hint = map[stage];
-  if (!hint) return null;
-  return <div style={{ fontSize: '0.5rem', opacity: 0.5 }}>{hint}</div>;
-}
-
+/* Queue list (kept from earlier version, styled container) */
 function QueueView({ queue }) {
   if (!queue?.length) {
     return (

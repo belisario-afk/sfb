@@ -1,0 +1,245 @@
+.battle-arena {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  padding: 1.5rem 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 50%, #14202a 0%, #0c1015 80%);
+  box-shadow: 0 0 30px -6px rgba(0,0,0,0.6);
+}
+
+.arena-bg {
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(0,180,255,0.18), transparent 55%),
+    radial-gradient(circle at 70% 60%, rgba(255,0,200,0.16), transparent 60%);
+  mix-blend-mode: screen;
+  opacity:0.55;
+  animation: bgPulse 6s linear infinite;
+  transition: filter .5s, opacity .5s;
+  pointer-events:none;
+}
+
+@keyframes bgPulse {
+  0% { transform:scale(1); opacity:.55; }
+  50% { transform:scale(1.04); opacity:.7; }
+  100% { transform:scale(1); opacity:.55; }
+}
+
+.bg-active-a { filter: hue-rotate(35deg) brightness(1.15); }
+.bg-active-b { filter: hue-rotate(-45deg) brightness(1.15); }
+.bg-finale { filter: brightness(1.4) saturate(1.3); opacity:0.85; }
+
+.album-side {
+  flex: 1;
+  display:flex;
+  justify-content:center;
+  perspective:1000px;
+}
+
+.album-card {
+  width: 200px;
+  max-width: 38vw;
+  transform-origin:center center;
+  transform: translateY(-30px) scale(0.85) rotateX(15deg);
+  opacity:0;
+  animation: dropIn 0.9s cubic-bezier(.25,.9,.35,1) forwards;
+  position:relative;
+}
+
+.album-side.left .album-card {
+  animation-delay:.1s;
+}
+
+.album-side.right .album-card {
+  animation-delay:.25s;
+}
+
+@keyframes dropIn {
+  0% { transform: translate(-120px,-60px) rotateX(35deg) rotateY(25deg) scale(.6); opacity:0; }
+  65% { opacity:1; }
+  100% { transform: translateY(0) scale(1) rotateX(0deg) rotateY(0deg); opacity:1; }
+}
+
+.album-inner {
+  position:relative;
+  background:linear-gradient(145deg,#18252f,#10181f);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px;
+  padding:0.75rem 0.75rem 0.95rem;
+  box-shadow:0 6px 22px -6px rgba(0,0,0,0.55);
+  overflow:hidden;
+}
+
+.album-art-wrap {
+  position:relative;
+  width:100%;
+  aspect-ratio:1;
+  border-radius:10px;
+  overflow:hidden;
+  background:#111;
+}
+
+.album-art {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+  transform:scale(1.05);
+  transition:transform .8s ease;
+}
+
+.album-card.is-active .album-art {
+  animation: activePulse 6s ease-in-out infinite;
+}
+
+@keyframes activePulse {
+  0%,100% { transform:scale(1.05); }
+  50% { transform:scale(1.12); }
+}
+
+.album-glow {
+  position:absolute;
+  inset:0;
+  background: radial-gradient(circle at 50% 70%, rgba(255,255,255,0.0), rgba(0,255,180,0.15));
+  mix-blend-mode: screen;
+  opacity:0;
+  transition: opacity .4s;
+}
+
+.album-card.is-active .album-glow {
+  opacity:1;
+}
+
+.album-meta {
+  margin-top:0.55rem;
+  text-align:left;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.album-side-label {
+  font-size:0.55rem;
+  letter-spacing:1px;
+  font-weight:600;
+  opacity:.65;
+  margin-bottom:2px;
+}
+
+.album-title {
+  font-size:0.8rem;
+  font-weight:600;
+  letter-spacing:.3px;
+  line-height:1.05rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.album-artists {
+  font-size:0.55rem;
+  opacity:.6;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  margin-top:2px;
+}
+
+.album-card.is-leader:not(.is-winner) .album-inner {
+  box-shadow:0 0 0 1px rgba(255,255,255,0.06),
+             0 0 18px -2px rgba(0,255,160,0.28);
+  border-color:rgba(0,255,150,0.35);
+}
+
+.album-card.is-winner .album-inner {
+  animation: winnerPulse 1.2s ease-in-out infinite;
+  border-color: rgba(80,255,180,0.65);
+  box-shadow:0 0 0 1px rgba(255,255,255,0.08),
+             0 0 30px -2px rgba(0,255,140,0.45),
+             0 0 60px -4px rgba(0,200,255,0.25);
+}
+
+@keyframes winnerPulse {
+  0%,100% { transform:translateZ(0) scale(1); }
+  50% { transform:translateZ(8px) scale(1.03); }
+}
+
+.album-card.is-loser {
+  animation: loserExit 1.1s cubic-bezier(.55,.1,.65,.95) forwards;
+}
+
+@keyframes loserExit {
+  0% { opacity:1; transform: scale(1) rotate(0deg); filter:brightness(1); }
+  40% { transform: scale(0.92) rotate(-4deg); }
+  100% { opacity:0; transform: translateY(50px) scale(0.6) rotate(-18deg); filter:brightness(0.4) blur(1px); }
+}
+
+/* NEON VS */
+.neon-vs {
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%) scale(0.4);
+  width: 190px;
+  height: 190px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background: radial-gradient(circle at 50% 50%, rgba(0,255,255,0.25), rgba(0,0,0,0.12));
+  opacity:0;
+  animation: vsPop 1s ease forwards .35s;
+  pointer-events:none;
+  mix-blend-mode:screen;
+}
+
+@keyframes vsPop {
+  0% { opacity:0; transform:translate(-50%,-50%) scale(0.05) rotate(25deg); filter:blur(8px); }
+  55% { opacity:1; filter:blur(0); }
+  100% { opacity:1; transform:translate(-50%,-50%) scale(1); }
+}
+
+.vs-text {
+  font-size:3.2rem;
+  font-weight:800;
+  letter-spacing:-2px;
+  background: linear-gradient(90deg,#4ade80,#58c7ff,#ff6bd5);
+  -webkit-background-clip:text;
+  color:transparent;
+  filter: drop-shadow(0 0 8px rgba(0,255,255,0.5)) drop-shadow(0 0 12px rgba(255,0,200,0.4));
+  font-family: "Impact", system-ui, sans-serif;
+  animation: vsNeon 4s linear infinite;
+}
+
+@keyframes vsNeon {
+  0% { filter: drop-shadow(0 0 6px rgba(0,255,255,0.5)) drop-shadow(0 0 12px rgba(255,0,200,0.3)); }
+  50% { filter: drop-shadow(0 0 14px rgba(0,255,255,0.8)) drop-shadow(0 0 18px rgba(255,0,180,0.6)); }
+  100% { filter: drop-shadow(0 0 6px rgba(0,255,255,0.5)) drop-shadow(0 0 12px rgba(255,0,200,0.3)); }
+}
+
+.neon-vs.vs-winner .vs-text {
+  animation: winnerGlare 1.1s ease-in-out infinite;
+}
+
+@keyframes winnerGlare {
+  0%,100% { filter: drop-shadow(0 0 12px rgba(0,255,160,0.9)) drop-shadow(0 0 24px rgba(0,180,255,0.7)); }
+  50% { filter: drop-shadow(0 0 22px rgba(0,255,210,1)) drop-shadow(0 0 40px rgba(0,180,255,0.9)); }
+}
+
+.neon-vs.vs-leader-known:not(.vs-winner) .vs-text {
+  background: linear-gradient(90deg,#00ffc3,#10b8ff);
+}
+
+/* Empty state */
+.arena-empty {
+  border:1px dashed rgba(255,255,255,0.15);
+  border-radius:12px;
+  padding:2rem;
+  text-align:center;
+  font-size:0.8rem;
+  color:rgba(255,255,255,0.5);
+}

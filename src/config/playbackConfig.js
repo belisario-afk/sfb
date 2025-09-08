@@ -1,13 +1,14 @@
-// Playback configuration
-// Modes: 'FULL' (Web Playback SDK) or 'PREVIEW' (30s preview_url).
-// If FULL fails (no premium or SDK issue), code will gracefully fall back to PREVIEW per track.
-export const PLAYBACK_MODE = 'FULL';
+export const PLAYBACK_MODE = import.meta.env.VITE_PLAYBACK_MODE || 'PREVIEW'; 
+// 'FULL' uses Spotify Web Playback SDK; 'PREVIEW' uses 30s preview URLs if available.
 
-// Segment durations for your battle phases (seconds)
 export const SEGMENT_DURATIONS = {
-  round1: 10,
-  round2: 20
+  round1: 10_000,   // 10s first pass each
+  round2: 20_000    // 20s continuation
 };
 
-// Whether to automatically pause after each segment (true) or just let the track continue (false).
-export const ENFORCE_SEGMENT_PAUSE = true;
+export const ENFORCE_SEGMENT_PAUSE = true; // keep a micro pause if you want between segments
+export const TRANSITION_BUFFER = 180;      // ms early scheduling for smoother handoff
+export const STAGE_GAP_MS = 250;           // brief gap between segments (set 0 for none)
+
+export const BATTLE_AUTOSTART_NEXT_DELAY = 3000; // ms after winner animation
+export const ALLOW_LIVE_VOTING_DURING_ALL_STAGES = true; // set false to lock after final segment
