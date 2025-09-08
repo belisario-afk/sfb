@@ -22,24 +22,25 @@ export default function VoteOverlay() {
 
   return (
     <div className="vote-overlay" aria-live="polite" aria-label="Voting window">
-      <div className="vote-panel pulse-border">
+      <div className="vote-panel">
         <div className="vote-header">
           <span className="vote-phase">
             {battle.stage === 'vote1' ? 'Round Vote' : 'Final Vote'}
           </span>
-          <span className="vote-instruction">Chat: !vote A or !vote B</span>
+          <span className="vote-instruction">Type in chat: !vote A or !vote B</span>
         </div>
         <div className="vote-countdown">
-            <div className={`ring-wrapper ${reducedMotion ? 'no-motion' : ''}`}>
+          <div className={`ring-wrapper ${reducedMotion ? 'no-motion' : ''}`}>
             <svg viewBox="0 0 120 120" className="vote-ring">
+              <defs>
+                <linearGradient id="gradRing" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#7af0a3" />
+                  <stop offset="50%" stopColor="#7fd8ff" />
+                  <stop offset="100%" stopColor="#ff95e5" />
+                </linearGradient>
+              </defs>
               <circle cx="60" cy="60" r="54" className="vote-ring-bg" />
-              <circle
-                cx="60"
-                cy="60"
-                r="54"
-                className="vote-ring-fg"
-                style={ringDash}
-              />
+              <circle cx="60" cy="60" r="54" className="vote-ring-fg" style={ringDash} />
               <text x="60" y="66" textAnchor="middle" className="vote-ring-text">
                 {seconds}
               </text>
@@ -58,11 +59,8 @@ export default function VoteOverlay() {
           </div>
         </div>
         <div className="vote-footer">
-          {battle.stage === 'vote2'
-            ? 'Winner announced after this vote.'
-            : 'Playback resumes after voting.'}
+          {battle.stage === 'vote2' ? 'Winner announced after this vote.' : 'Playback resumes after voting.'}
         </div>
-        <div className="vote-panel-gradient" />
       </div>
     </div>
   );

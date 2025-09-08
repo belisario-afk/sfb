@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { useAppContext } from './context/AppContext.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
-import BattleArena from './components/BattleArena.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
+import NeoArena from './components/arena/NeoArena.jsx';
+import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
 import ParticleField from './components/FX/ParticleField.jsx';
 
 export default function App() {
@@ -25,12 +26,14 @@ export default function App() {
     beginSpotifyAuth,
     spotifyPlayer,
     addDemoPair,
-    visualFxEnabled
+    visualFxEnabled,
+    reducedMotion
   } = ctx;
 
   useEffect(() => {
     const h = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'n') nextBattle();
       else if (e.key === 's') forceNextStage();
       else if (e.key === 'p') togglePause();
@@ -47,9 +50,32 @@ export default function App() {
   const votesA = battle?.voteTotals?.a || 0;
   const votesB = battle?.voteTotals?.b || 0;
 
+  const stageLabel = useMemo(() => {
+    if (!battle) return 'Ready';
+    const s = battle.stage;
+    if (s === 'finished') return 'Winner';
+    if (s.startsWith('vote')) return 'Voting';
+    if (s.includes('r1')) return 'Round 1';
+    if (s.includes('r2')) return 'Round 2';
+    return s;
+  }, [battle]);
+
   return (
     <div className="app-root">
-      {visualFxEnabled && <ParticleField />}
+      {visualFxEnabled && !reducedMotion && (
+        <ThreeBackdrop
+          // Scene styling reacts to stage for color mood
+          mode={
+            !battle ? 'idle'
+            : battle.stage === 'finished' ? 'finale'
+            : battle.stage.startsWith('vote') ? 'vote'
+            : 'play'
+          }
+        />
+      )}
+      {/* Fallback particles if Three.js fails or user toggles off later */}
+      {visualFxEnabled && (reducedMotion) && <ParticleField />}
+
       <div className="app-grid">
         {/* Left Column */}
         <div className="layout-left">
@@ -58,35 +84,52 @@ export default function App() {
 
         {/* Center Column */}
         <div className="layout-center">
-            <div className="toolbar glass-soft">
-            <button className="btn-outline" onClick={startBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
-            <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
-            <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
-            <button className="btn-outline" onClick={openSearch}>Search Tracks</button>
-            <button className="btn-outline" onClick={addDemoPair}>Demo Pair</button>
-            {!authState && <button className="btn-outline" onClick={beginSpotifyAuth}>Login Spotify</button>}
-            {authState && !hasScopes && <button className="btn-outline" onClick={beginSpotifyAuth}>Re-Auth Scopes</button>}
+          <div className="toolbar glass-soft toolbar-neo">
+            <div className="toolbar-left">
+              <div className="brand">NEO ARENA</div>
+              <div className="stage-chip">{stageLabel}</div>
+            </div>
+            <div className="toolbar-actions">
+              <button className="btn-primary" onClick={startBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
+              <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
+              <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
+              <button className="btn-outline" onClick={openSearch}>Search Tracks</button>
+              <button className="btn-outline" onClick={addDemoPair}>Demo Pair</button>
+              {!authState && <button className="btn-outline" onClick={beginSpotifyAuth}>Login Spotify</button>}
+              {authState && !hasScopes && <button className="btn-outline" onClick={beginSpotifyAuth}>Re-Auth Scopes</button>}
+            </div>
           </div>
 
           <div className="arena-wrapper">
-            <BattleArena />
+            <NeoArena />
             <VoteOverlay />
+            {battle && (
+              <div className="scoreboard glass-surface">
+                <div className="score left">
+                  <span className="label">A</span>
+                  <span className="value">{String(votesA).padStart(2, '0')}</span>
+                </div>
+                <div className="divider" />
+                <div className="score right">
+                  <span className="label">B</span>
+                  <span className="value">{String(votesB).padStart(2, '0')}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {battle && (
             <div className="battle-info glass-soft">
-              <span><strong>Stage:</strong> {battle.stage}</span>
-              <span><strong>A:</strong> {votesA}</span>
-              <span><strong>B:</strong> {votesB}</span>
-              {battle.voteWindow && <span>Vote Window: {battle.voteWindow}/2</span>}
+              <span className="info-pill"><strong>Stage:</strong> {battle.stage}</span>
+              {battle.voteWindow && <span className="info-pill">Vote Window: {battle.voteWindow}/2</span>}
               {battle.winner && (
-                <span className="tag-win">
+                <span className="info-pill tag-win">
                   Winner: {battle.winner?.toUpperCase()}
                 </span>
               )}
-              {battle.paused && <span className="tag-paused">Paused</span>}
+              {battle.paused && <span className="info-pill tag-paused">Paused</span>}
               {battle.stage?.startsWith('vote') && battle.voteEndsAt && (
-                <span className="tag-vote">
+                <span className="info-pill tag-vote">
                   {Math.max(0, Math.ceil((battle.voteEndsAt - Date.now()) / 1000))}s
                 </span>
               )}
