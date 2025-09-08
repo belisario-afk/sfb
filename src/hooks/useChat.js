@@ -1,56 +1,39 @@
 /**
- * useChat
- * Provides a uniform chat interface across three modes:
- *  - simulation: generates fake messages
- *  - relay: connects to a WebSocket relay (expects JSON messages with { user, text })
- *  - direct: placeholder (no messages unless sent manually)
+ * Unified useChat hook
+ * Modes:
+ *  - simulation: generates fake chat messages with commands
+ *  - relay: connects to a WebSocket URL (expects JSON { user, text } or plain text)
+ *  - direct: passive, lets you manually send()
  *
- * Returned shape:
- *  {
- *    mode,
- *    relayUrl,
- *    status: 'idle' | 'connecting' | 'open' | 'closed' | 'error',
- *    messages: Array<{ id, user, text, ts }>,
- *    send(text, user='you'),
- *    subscribe(fn),
- *    unsubscribe(fn)
- *  }
- *
- * Subscribers receive each new message object.
+ * Always returns:
+ * {
+ *   mode, relayUrl, status,
+ *   messages, send(text, user?),
+ *   subscribe(fn), unsubscribe(fn)
+ * }
  */
 import { useEffect, useRef, useState } from 'react';
 
-const MAX_MESSAGES = 300;
-
-let globalIdCounter = 0;
-function makeId() {
-  globalIdCounter += 1;
-  return 'm' + globalIdCounter.toString(36);
-}
+const MAX_MESSAGES = 400;
+let globalMsgId = 0;
+const nextId = () => 'm' + (++globalMsgId).toString(36);
 
 export default function useChat({ mode = 'simulation', relayUrl } = {}) {
   const [messages, setMessages] = useState([]);
-  const [status, setStatus] = useState('idle');
+  const [status, setStatus] = useState('idle'); // idle | connecting | open | closed | error
   const wsRef = useRef(null);
-  const simTimerRef = useRef(null);
-  const listenersRef = useRef(new Set());
+  const simRef = useRef(null);
+  const listeners = useRef(new Set());
 
-  // Helper: broadcast to subscribers
   function emit(msg) {
-    listenersRef.current.forEach(fn => {
-      try { fn(msg); } catch (e) { /* ignore */ }
+    listeners.current.forEach(fn => {
+      try { fn(msg); } catch {}
     });
   }
 
-  // Safe add message
   function pushMessage(user, text) {
     if (!text) return;
-    const msg = {
-      id: makeId(),
-      user: user || 'anon',
-      text: text.toString(),
-      ts: Date.now()
-    };
+    const msg = { id: nextId(), user: user || 'anon', text: text.toString(), ts: Date.now() };
     setMessages(prev => {
       const next = [...prev, msg];
       if (next.length > MAX_MESSAGES) next.splice(0, next.length - MAX_MESSAGES);
@@ -59,14 +42,12 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
     emit(msg);
   }
 
-  // Public send
   function send(text, user = 'you') {
     pushMessage(user, text);
-    // Optionally send over relay if open
     if (mode === 'relay' && wsRef.current && wsRef.current.readyState === 1) {
       try {
         wsRef.current.send(JSON.stringify({ type: 'chat', user, text }));
-      } catch { /* ignore */ }
+      } catch {}
     }
   }
 
@@ -74,42 +55,37 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
   useEffect(() => {
     if (mode !== 'simulation') return;
     setStatus('open');
-    // Boot a small initial set
     if (messages.length === 0) {
-      pushMessage('system', 'Simulation chat started.');
+      pushMessage('system', 'Simulation started.');
     }
-    simTimerRef.current = setInterval(() => {
-      const picks = ['neo', 'trinity', 'morpheus', 'oracle', 'smith'];
-      const verbs = ['votes', 'requests', 'adds', 'likes', 'queues'];
-      const pick = picks[Math.floor(Math.random() * picks.length)];
-      const verb = verbs[Math.floor(Math.random() * verbs.length)];
-      const coin = Math.random();
+    simRef.current = setInterval(() => {
+      const users = ['ada', 'linus', 'grace', 'hopper', 'turing', 'lovelace'];
+      const verbs = ['queues', 'likes', 'pings', 'votes', 'adds', 'requests'];
+      const u = users[Math.random() * users.length | 0];
+      const r = Math.random();
       let text;
-      if (coin < 0.25) {
-        text = '!vote ' + (Math.random() > 0.5 ? 'A' : 'B');
-      } else if (coin < 0.45) {
-        text = '!battle ' + ['orbit', 'neon', 'groove', 'sunset', 'rain'].sort(()=>0.5-Math.random())[0];
+      if (r < 0.25) text = '!vote ' + (Math.random() > 0.5 ? 'A' : 'B');
+      else if (r < 0.47) {
+        const q = ['orbit', 'neon', 'pulse', 'groove', 'sunset', 'drift'][Math.random() * 6 | 0];
+        text = '!battle ' + q;
       } else {
-        text = `${verb} something cool`;
+        text = verbs[Math.random() * verbs.length | 0] + ' something';
       }
-      pushMessage(pick, text);
-    }, 4000 + Math.random() * 3000);
-    return () => clearInterval(simTimerRef.current);
+      pushMessage(u, text);
+    }, 3500 + Math.random() * 3000);
+    return () => clearInterval(simRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Relay mode (WebSocket)
+  // Relay mode
   useEffect(() => {
     if (mode !== 'relay') {
-      if (wsRef.current) {
-        try { wsRef.current.close(); } catch {}
-        wsRef.current = null;
-      }
+      if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
       return;
     }
     if (!relayUrl) {
       setStatus('error');
-      pushMessage('system', 'Relay URL not set.');
+      pushMessage('system', 'Relay URL missing.');
       return;
     }
     setStatus('connecting');
@@ -133,9 +109,10 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
         const data = JSON.parse(ev.data);
         if (data && (data.text || data.message)) {
           pushMessage(data.user || data.username || 'anon', data.text || data.message);
+        } else {
+          pushMessage('relay', ev.data);
         }
       } catch {
-        // Non-JSON fallback
         pushMessage('relay', ev.data);
       }
     };
@@ -144,29 +121,25 @@ export default function useChat({ mode = 'simulation', relayUrl } = {}) {
       try { ws.close(); } catch {}
       wsRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, relayUrl]);
 
-  // Direct mode simply sets status open
+  // Direct mode
   useEffect(() => {
     if (mode === 'direct') {
       setStatus('open');
-      if (messages.length === 0) {
-        pushMessage('system', 'Direct chat ready.');
-      }
+      if (messages.length === 0) pushMessage('system', 'Direct chat ready.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Public subscription API
   function subscribe(fn) {
     if (typeof fn === 'function') {
-      listenersRef.current.add(fn);
+      listeners.current.add(fn);
     }
     return () => unsubscribe(fn);
   }
   function unsubscribe(fn) {
-    listenersRef.current.delete(fn);
+    listeners.current.delete(fn);
   }
 
   return {

@@ -23,10 +23,10 @@ const AppContext = createContext(null);
 export const useAppContext = () => useContext(AppContext);
 
 function parseQueryParams() {
-  const params = new URLSearchParams(window.location.search);
-  const out = {};
-  for (const [k,v] of params.entries()) out[k] = v;
-  return out;
+  const p = new URLSearchParams(window.location.search);
+  const o = {};
+  for (const [k,v] of p.entries()) o[k] = v;
+  return o;
 }
 
 function buildDemoTracks() {
@@ -56,6 +56,7 @@ export function AppProvider({ children }) {
     import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
     ''
   );
+
   const [authState, setAuthState] = useState(loadStoredTokens());
   const [authError, setAuthError] = useState(null);
   const [authChecking, setAuthChecking] = useState(false);
@@ -86,12 +87,8 @@ export function AppProvider({ children }) {
 
   const chat = useChat({ mode: chatMode, relayUrl });
 
-  // Debug exposure
   if (typeof window !== 'undefined') {
-    window.__SFB_DEBUG = {
-      ...(window.__SFB_DEBUG || {}),
-      chat
-    };
+    window.__SFB_DEBUG = { ...(window.__SFB_DEBUG || {}), chat };
   }
 
   const normalizeRelay = useCallback((val) => {
@@ -105,9 +102,9 @@ export function AppProvider({ children }) {
   }, []);
 
   const updateClientId = useCallback((cid) => {
-    const trimmed = cid.trim();
-    setSpotifyClientIdState(trimmed);
-    localStorage.setItem('customSpotifyClientId', trimmed);
+    const t = cid.trim();
+    setSpotifyClientIdState(t);
+    localStorage.setItem('customSpotifyClientId', t);
   }, []);
 
   const logoutSpotify = useCallback(() => {
@@ -139,8 +136,8 @@ export function AppProvider({ children }) {
           const tokens = await exchangeCodeForToken(code, spotifyClientId);
           setAuthState(tokens);
           setAuthError(null);
-          const newUrl = window.location.origin + window.location.pathname + window.location.hash;
-          window.history.replaceState({}, '', newUrl);
+          const clean = window.location.origin + window.location.pathname + window.location.hash;
+          window.history.replaceState({}, '', clean);
         } catch (e) {
           setAuthError(e.message);
         } finally {
@@ -152,7 +149,7 @@ export function AppProvider({ children }) {
 
   // Refresh loop
   useEffect(() => {
-    let cancelled = false;
+    let dead = false;
     let t;
     async function loop() {
       if (!spotifyClientId) {
@@ -161,29 +158,29 @@ export function AppProvider({ children }) {
       }
       try {
         const fresh = await ensureFreshToken(spotifyClientId);
-        if (!cancelled && fresh) setAuthState(fresh);
+        if (!dead && fresh) setAuthState(fresh);
       } catch (e) {
         console.warn('[Auth] refresh error', e);
       }
       t = setTimeout(loop, 60000);
     }
     loop();
-    return () => { cancelled = true; clearTimeout(t); };
+    return () => { dead = true; clearTimeout(t); };
   }, [spotifyClientId]);
 
-  // Chat message command handling via unified subscribe
+  // Chat commands subscription
   useEffect(() => {
     if (!chat || typeof chat.subscribe !== 'function') return;
     const handler = (msg) => {
-      const text = (msg?.text || '').toLowerCase().trim();
-      if (text.startsWith('!vote ')) {
-        const choice = text.split(/\s+/)[1];
+      const txt = (msg?.text || '').toLowerCase().trim();
+      if (txt.startsWith('!vote ')) {
+        const choice = txt.split(/\s+/)[1];
         if (choice === 'a' || choice === 'b') {
           vote(choice, msg.user || 'anon');
         }
-      } else if (text.startsWith('!battle ')) {
-        const query = (msg.text || '').slice('!battle '.length).trim();
-        if (query) addTopTrackByQuery(query);
+      } else if (txt.startsWith('!battle ')) {
+        const q = (msg.text || '').slice('!battle '.length).trim();
+        if (q) addTopTrackByQuery(q);
       }
     };
     const unsub = chat.subscribe(handler);
@@ -198,7 +195,7 @@ export function AppProvider({ children }) {
     const top = await searchTopTrackByQuery(authState.accessToken, query);
     if (top) {
       addTrack(top);
-      console.log('[AddTrack] Added top track:', top.name);
+      console.log('[AddTrack] Added:', top.name);
     } else {
       console.log('[AddTrack] No results for:', query);
     }
