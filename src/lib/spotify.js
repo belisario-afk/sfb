@@ -3,13 +3,18 @@ import { generateCodeChallenge, generateCodeVerifier } from './pkce.js';
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SCOPES = [
-  'user-read-email' // minimal; we mainly need search which requires no special scope
+  'user-read-email'
 ];
+
+function getRedirectUri() {
+  // Use trailing slash callback folder so GitHub Pages serves callback/index.html
+  return window.location.origin + '/sfb/callback/';
+}
 
 export function startSpotifyAuth(clientId) {
   const codeVerifier = generateCodeVerifier();
   localStorage.setItem('spotify_code_verifier', codeVerifier);
-  const redirectUri = window.location.origin + '/sfb/callback';
+  const redirectUri = getRedirectUri();
   generateCodeChallenge(codeVerifier).then(codeChallenge => {
     const params = new URLSearchParams({
       client_id: clientId,
@@ -23,8 +28,9 @@ export function startSpotifyAuth(clientId) {
   });
 }
 
-export async function exchangeCodeForToken(code, clientId, redirectUri) {
+export async function exchangeCodeForToken(code, clientId) {
   const codeVerifier = localStorage.getItem('spotify_code_verifier');
+  const redirectUri = getRedirectUri();
   const body = new URLSearchParams({
     client_id: clientId,
     grant_type: 'authorization_code',
