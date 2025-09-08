@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { playPreview, stopAll } from '../lib/audioManager.js';
 
 /**
- * Manages queue, current battle states, timing & votes.
+ * Battle Engine
+ * This version DOES NOT skip tracks without preview_url.
+ * If a track has no preview, its stage will just be silent while votes can still happen.
  */
 export default function useBattleEngine() {
   const [queue, setQueue] = useState([]);
@@ -10,7 +12,12 @@ export default function useBattleEngine() {
   const timerRef = useRef(null);
 
   const addTrack = (track) => {
-    setQueue(q => [...q, track]);
+    if (!track) return;
+    const annotated = {
+      ...track,
+      _noPreview: !track.preview_url
+    };
+    setQueue(q => [...q, annotated]);
   };
 
   const tryStartBattle = useCallback(() => {
@@ -18,11 +25,14 @@ export default function useBattleEngine() {
       if (prev && prev.stage !== 'finished') return prev;
       return null;
     });
+
     setQueue(q => {
       if (q.length < 2) return q;
       const [a, b, ...rest] = q;
+
       setCurrentBattle({
-        a, b,
+        a,
+        b,
         stage: 'intro',
         startedAt: Date.now(),
         votes: { a: new Set(), b: new Set() },
@@ -30,45 +40,52 @@ export default function useBattleEngine() {
         winner: null,
         paused: false
       });
+
       return rest;
     });
   }, []);
 
-  // Core stage progression
   const proceed = useCallback(() => {
     setCurrentBattle(b => {
       if (!b) return b;
       if (b.paused) return b;
+
       const next = { ...b };
       const totalVotesA = b.votes.a.size;
       const totalVotesB = b.votes.b.size;
+
+      const playIfPreview = (label, track, dur) => {
+        if (!track?.preview_url) {
+          console.warn('[Battle] No preview for track:', track?.name);
+          return;
+        }
+        playPreview(label, track.preview_url, dur);
+      };
+
       switch (b.stage) {
         case 'intro':
           next.stage = 'round1A';
-          playPreview('A', b.a.preview_url, 10);
+          playIfPreview('A', b.a, 10);
           break;
         case 'round1A':
           next.stage = 'round1B';
-          playPreview('B', b.b.preview_url, 10);
+          playIfPreview('B', b.b, 10);
           break;
         case 'round1B':
           next.round1Leader = totalVotesA >= totalVotesB ? 'a' : 'b';
+          next.stage = 'round2A';
           if (next.round1Leader === 'a') {
-            next.stage = 'round2A';
-            playPreview('A', b.a.preview_url, 20);
+            playIfPreview('A', b.a, 20);
           } else {
-            next.stage = 'round2A';
-            playPreview('B', b.b.preview_url, 20);
+            playIfPreview('B', b.b, 20);
           }
           break;
         case 'round2A':
-          // whichever didn't play now plays second
+          next.stage = 'round2B';
           if (b.round1Leader === 'a') {
-            next.stage = 'round2B';
-            playPreview('B', b.b.preview_url, 20);
+            playIfPreview('B', b.b, 20);
           } else {
-            next.stage = 'round2B';
-            playPreview('A', b.a.preview_url, 20);
+            playIfPreview('A', b.a, 20);
           }
           break;
         case 'round2B':
@@ -76,7 +93,6 @@ export default function useBattleEngine() {
           next.winner = totalVotesA >= totalVotesB ? 'a' : 'b';
           stopAll();
           break;
-        case 'finished':
         default:
           break;
       }
@@ -84,22 +100,19 @@ export default function useBattleEngine() {
     });
   }, []);
 
-  // Timer logic for automatic stage transitions
+  // Automatic stage timing
   useEffect(() => {
     clearTimeout(timerRef.current);
     if (!currentBattle) return;
     if (currentBattle.paused) return;
 
-    let delay = 2000; // intro
+    let delay = 2000;
     if (currentBattle.stage === 'round1A' || currentBattle.stage === 'round1B') delay = 10000;
     else if (currentBattle.stage === 'round2A' || currentBattle.stage === 'round2B') delay = 20000;
-    else if (currentBattle.stage === 'finished') {
-      delay = 4000;
-    }
+    else if (currentBattle.stage === 'finished') delay = 4000;
 
     timerRef.current = setTimeout(() => {
       if (currentBattle.stage === 'finished') {
-        // chain into next if queue ready
         tryStartBattle();
       } else {
         proceed();
@@ -110,12 +123,19 @@ export default function useBattleEngine() {
   }, [currentBattle, proceed, tryStartBattle]);
 
   const vote = (choice, username) => {
+    const key = choice === 'a' ? 'a' : choice === 'b' ? 'b' : null;
+    if (!key) return;
     setCurrentBattle(b => {
       if (!b) return b;
       if (!['intro','round1A','round1B','round2A','round2B'].includes(b.stage)) return b;
-      const next = { ...b, votes: { a: new Set(b.votes.a), b: new Set(b.votes.b) } };
-      if (choice === 'a') next.votes.a.add(username.toLowerCase());
-      if (choice === 'b') next.votes.b.add(username.toLowerCase());
+      const next = {
+        ...b,
+        votes: {
+          a: new Set(b.votes.a),
+            b: new Set(b.votes.b)
+        }
+      };
+      next.votes[key].add(username.toLowerCase());
       return next;
     });
   };
@@ -125,14 +145,7 @@ export default function useBattleEngine() {
   const togglePause = () => {
     setCurrentBattle(b => {
       if (!b) return b;
-      const next = { ...b, paused: !b.paused };
-      if (next.paused) {
-        clearTimeout(timerRef.current);
-      } else {
-        // resume logic: just proceed sooner
-        proceed();
-      }
-      return next;
+      return { ...b, paused: !b.paused };
     });
   };
 
