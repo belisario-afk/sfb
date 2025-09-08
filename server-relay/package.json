@@ -14,7 +14,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "tiktok-live-connector": "^1.7.6",
+    "tiktok-live-connector": "1.6.6",
     "ws": "^8.18.0"
   }
 }
