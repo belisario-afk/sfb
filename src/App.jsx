@@ -7,7 +7,7 @@ import BattleArena from './components/BattleArena.jsx';
 
 export default function App() {
   const ctx = useAppContext();
-  if (!ctx) return <div style={{padding:'2rem',color:'#fff'}}>No AppContext</div>;
+  if (!ctx) return <div style={{padding:'2rem',color:'#fff'}}>Missing AppContext</div>;
 
   const {
     queue,
@@ -40,6 +40,9 @@ export default function App() {
   const startBattle = useCallback(() => nextBattle(), [nextBattle]);
   const openSearch = () => setModalOpen(true);
   const closeSearch = () => setModalOpen(false);
+
+  const votesA = battle?.votes?.a?.size || 0;
+  const votesB = battle?.votes?.b?.size || 0;
 
   return (
     <div className="app-grid">
@@ -74,8 +77,8 @@ export default function App() {
             background:'rgba(255,255,255,0.03)'
           }}>
             <span><strong>Stage:</strong> {battle.stage}</span>
-            <span><strong>A Votes:</strong> {battle.votes?.a?.size || 0}</span>
-            <span><strong>B Votes:</strong> {battle.votes?.b?.size || 0}</span>
+            <span><strong>A Votes:</strong> {votesA}</span>
+            <span><strong>B Votes:</strong> {votesB}</span>
             {battle.leader && !battle.winner && (
               <span style={{color:'#4ade80'}}><strong>Leader:</strong> {battle.leader.toUpperCase()}</span>
             )}
@@ -89,8 +92,8 @@ export default function App() {
         <QueueView queue={queue} />
 
         <div style={{fontSize:'0.5rem',opacity:0.55}}>
-          Player: {spotifyPlayer?.ready ? 'Ready' : 'Not Ready'}
-          {spotifyPlayer?.deviceId && ` (${spotifyPlayer.deviceId.slice(0,8)}...)`}
+          Player: {spotifyPlayer?.status}
+          {spotifyPlayer?.deviceId && ` (Device ${spotifyPlayer.deviceId.slice(0,8)}...)`}
           {spotifyPlayer?.error && <span style={{color:'#ff6b6b'}}> Error: {spotifyPlayer.error}</span>}
           {' '}Scopes: {hasScopes ? 'OK' : 'Missing'}
         </div>

@@ -16,20 +16,13 @@ const LOG = '[BattleEngine]';
 export default function useBattleEngine(spotifyClientId) {
   const [queue, setQueue] = useState([]);
   const [currentBattle, setCurrentBattle] = useState(null);
-  const [spotifyPlayer, setSpotifyPlayer] = useState(null); // externally settable if needed
+  const [spotifyPlayer, setSpotifyPlayer] = useState(null);
 
   const timersRef = useRef({ main: null, raf: null });
   const pendingStageRef = useRef(null);
 
-  // Allow external injection of spotifyPlayer if you have a hook (optional)
-  // Expose setter if needed outside:
-  // useEffect(() => { setSpotifyPlayer(window.__SPOTIFY_PLAYER) }, []);
-
   const addTrack = useCallback((track) => {
-    // Ensure we have a URI for FULL mode
-    if (!track.uri && track.id) {
-      track.uri = 'spotify:track:' + track.id;
-    }
+    if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
     setQueue(q => [...q, track]);
   }, []);
 
@@ -88,7 +81,7 @@ export default function useBattleEngine(spotifyClientId) {
 
   const tryStartBattle = useCallback(() => {
     if (currentBattle && currentBattle.stage !== 'finished') {
-      console.warn(LOG, 'Cannot start new battle: current not finished.');
+      console.warn(LOG, 'Cannot start new battle: current active.');
       return;
     }
     const b = initBattle();
@@ -112,7 +105,6 @@ export default function useBattleEngine(spotifyClientId) {
           stopAllPreviews();
         }
       } else {
-        console.log(LOG, 'Resuming stage', prev.stage);
         scheduleStage(prev.stage, prev, true);
       }
       return { ...prev, paused };
@@ -122,51 +114,41 @@ export default function useBattleEngine(spotifyClientId) {
   const forceNextStage = useCallback(() => {
     setCurrentBattle(prev => {
       if (!prev) return prev;
-      console.log(LOG, 'Force next stage from', prev.stage);
       clearTimers();
       advanceStage(prev);
       return prev;
     });
   }, []);
 
-  // Stage logic
-  function computeLeader(battle) {
-    const av = battle.votes.a.size;
-    const bv = battle.votes.b.size;
-    if (av === bv) {
-      return Math.random() < 0.5 ? 'a' : 'b';
-    }
+  function computeLeader(b) {
+    const av = b.votes.a.size;
+    const bv = b.votes.b.size;
+    if (av === bv) return Math.random() < 0.5 ? 'a' : 'b';
     return av > bv ? 'a' : 'b';
   }
 
-  function computeWinner(battle) {
-    const av = battle.votes.a.size;
-    const bv = battle.votes.b.size;
+  function computeWinner(b) {
+    const av = b.votes.a.size;
+    const bv = b.votes.b.size;
     if (av === bv) return null;
     return av > bv ? 'a' : 'b';
   }
 
-  function stageToSegment(stage, battle) {
+  function stageToSegment(stage, b) {
     const r1 = SEGMENT_DURATIONS.round1;
     const r2 = SEGMENT_DURATIONS.round2;
     switch (stage) {
       case 'round1A': return { side: 'a', offsetMs: 0, durationMs: r1 };
       case 'round1B': return { side: 'b', offsetMs: 0, durationMs: r1 };
-      case 'round2First': {
-        const side = battle.leader;
-        return { side, offsetMs: r1, durationMs: r2 };
-      }
-      case 'round2Second': {
-        const side = battle.leader === 'a' ? 'b' : 'a';
-        return { side, offsetMs: SEGMENT_DURATIONS.round1, durationMs: r2 };
-      }
+      case 'round2First': return { side: b.leader, offsetMs: r1, durationMs: r2 };
+      case 'round2Second': return { side: b.leader === 'a' ? 'b' : 'a', offsetMs: r1, durationMs: r2 };
       default: return null;
     }
   }
 
-  function advanceStage(battleSnapshot) {
+  function advanceStage(snapshot) {
     setCurrentBattle(prev => {
-      const b = battleSnapshot || prev;
+      const b = snapshot || prev;
       if (!b) return prev;
       let next;
       switch (b.stage) {
@@ -210,7 +192,7 @@ export default function useBattleEngine(spotifyClientId) {
         startSegment(segment, updated);
         scheduleSegmentEnd(segment, updated);
       } else {
-        // intro or decideLeader quick auto-advance
+        // intro or decideLeader
         const delay = nextStage === 'decideLeader' ? 300 : 600;
         timersRef.current.main = setTimeout(() => advanceStage(updated), delay);
       }
@@ -222,18 +204,10 @@ export default function useBattleEngine(spotifyClientId) {
 
   function scheduleSegmentEnd(segment, battle) {
     const targetPerf = performance.now() + segment.durationMs;
-    pendingStageRef.current = {
-      stage: battle.stage,
-      end: targetPerf
-    };
+    pendingStageRef.current = { stage: battle.stage, end: targetPerf };
 
-    const earlyMs = Math.max(
-      0,
-      (segment.durationMs - TRANSITION_BUFFER)
-    );
-
+    const early = Math.max(0, (segment.durationMs - TRANSITION_BUFFER));
     timersRef.current.main = setTimeout(() => {
-      // Fine spin with rAF to reduce drift
       const spin = () => {
         const now = performance.now();
         if (now >= targetPerf - 6) {
@@ -247,48 +221,48 @@ export default function useBattleEngine(spotifyClientId) {
         }
       };
       spin();
-    }, earlyMs);
+    }, early);
   }
 
-  function haveFullPlaybackPrereqs() {
-    if (PLAYBACK_MODE !== 'FULL') return false;
-    // You can add more robust checks (token, scopes) if needed
-    return true;
+  function hasFullEnv() {
+    return PLAYBACK_MODE === 'FULL';
   }
 
   async function startSegment(segment, battle) {
     if (battle.paused) return;
-    const isFull = haveFullPlaybackPrereqs();
-
     const track = battle[segment.side];
     if (!track) return;
 
-    if (isFull) {
-      await playFull(track, segment.offsetMs);
+    if (hasFullEnv()) {
+      await playSpotifySegment(track, segment.offsetMs);
     } else {
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
   }
 
-  async function playFull(track, offsetMs) {
-    // Use /me/player/play with explicit position_ms
-    const tokenRaw = localStorage.getItem('spotifyTokens');
-    let accessToken = null;
-    try { accessToken = JSON.parse(tokenRaw || 'null')?.accessToken; } catch {}
-    if (!accessToken) {
-      console.warn(LOG, 'No access token for FULL playback; fallback to preview');
+  async function playSpotifySegment(track, offsetMs) {
+    const tokensRaw = localStorage.getItem('spotifyTokens');
+    if (!tokensRaw) {
+      console.warn(LOG, 'No tokens for FULL playback, fallback preview');
+      playPreviewSegment(track, 'a', offsetMs, SEGMENT_DURATIONS.round1);
+      return;
+    }
+    let token;
+    try { token = JSON.parse(tokensRaw).accessToken; } catch {}
+    if (!token) {
+      console.warn(LOG, 'Invalid token JSON, fallback preview');
+      playPreviewSegment(track, 'a', offsetMs, SEGMENT_DURATIONS.round1);
       return;
     }
     if (!track.uri) {
-      console.warn(LOG, 'Track missing uri (cannot full play):', track.name);
+      console.warn(LOG, 'Missing track.uri for full playback', track);
       return;
     }
-    // Optionally: ensure device is active (transfer) before playing
     try {
       await fetch('https://api.spotify.com/v1/me/player/play', {
         method: 'PUT',
         headers: {
-          Authorization: 'Bearer ' + accessToken,
+          Authorization: 'Bearer ' + token,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -296,29 +270,21 @@ export default function useBattleEngine(spotifyClientId) {
           position_ms: offsetMs
         })
       });
-      // no await after: we trust Spotify to start playback
-      console.log(LOG, 'FULL segment start', { name: track.name, offsetMs });
+      console.log(LOG, 'FULL play', track.name, 'offset', offsetMs);
     } catch (e) {
-      console.warn(LOG, 'FULL playback failed; fallback preview', e);
+      console.warn(LOG, 'FULL play failed', e);
       if (track.preview_url) {
-        playPreview('FB-' + track.id.slice(0, 4), track.preview_url, SEGMENT_DURATIONS.round1 / 1000);
+        playPreviewSegment(track, 'a', offsetMs, SEGMENT_DURATIONS.round1);
       }
     }
   }
 
   function playPreviewSegment(track, side, offsetMs, durationMs) {
-    if (!track.preview_url) {
-      // Skip silently - we do not want to spam logs
-      return;
-    }
-    const secondsRemaining = Math.max(0, Math.min(durationMs, 30_000 - offsetMs) / 1000);
-    if (secondsRemaining <= 0.2) return;
-    // We approximate: start at offset by manipulating currentTime via new Audio object is expensive,
-    // so just start from 0 if offsetMs is small; for 10s resume we can't reliably jump w/out manual element mgmt.
-    playPreview(`SEG-${side}`, track.preview_url, secondsRemaining);
+    if (!track.preview_url) return;
+    const seconds = Math.max(0.5, Math.min(durationMs, 30_000 - offsetMs) / 1000);
+    playPreview(`SEG-${side}`, track.preview_url, seconds);
   }
 
-  // Clean up on unmount
   useEffect(() => clearTimers, []);
 
   return {
@@ -332,6 +298,6 @@ export default function useBattleEngine(spotifyClientId) {
     forceNextStage,
     togglePause,
     spotifyPlayer,
-    setSpotifyPlayer // export setter if you need to inject the player externally
+    setSpotifyPlayer
   };
 }

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 import { PLAYBACK_MODE, SEGMENT_DURATIONS, ENFORCE_SEGMENT_PAUSE } from '../config/playbackConfig.js';
 
@@ -29,8 +29,6 @@ export default function SettingsPanel() {
 
   const [localClientId, setLocalClientId] = useState(spotifyClientId);
   const [localRelay, setLocalRelay] = useState(relayUrl);
-  const [transferStatus, setTransferStatus] = useState(null);
-  const [transferBusy, setTransferBusy] = useState(false);
 
   const saveClientId = () => {
     const newId = localClientId.trim();
@@ -47,45 +45,13 @@ export default function SettingsPanel() {
     }
   })();
 
-  const transferPlayback = useCallback(async () => {
-    if (!spotifyPlayer?.deviceId || !accessToken) {
-      setTransferStatus('No device or token');
-      return;
-    }
-    setTransferBusy(true);
-    setTransferStatus(null);
-    try {
-      const res = await fetch('https://api.spotify.com/v1/me/player', {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          device_ids: [spotifyPlayer.deviceId],
-          play: false
-        })
-      });
-      if (res.status === 204) {
-        setTransferStatus('Transferred');
-      } else {
-        const txt = await res.text().catch(()=> '');
-        setTransferStatus(`Failed (${res.status}) ${txt.slice(0,120)}`);
-      }
-    } catch (e) {
-      setTransferStatus('Error: ' + e.message);
-    } finally {
-      setTransferBusy(false);
-    }
-  }, [spotifyPlayer?.deviceId, accessToken]);
-
-  const scopeStatus = () => {
+  function scopeStatus() {
     if (!authState) return 'Not Logged In';
     if (authChecking) return 'Checking...';
     if (authError) return 'Error';
     if (!hasScopes) return 'Missing Scopes';
     return 'OK';
-  };
+  }
 
   const grantedScopes = authState?.scope ? authState.scope.split(/\s+/) : [];
   const missingScopes = requiredScopes.filter(s => !grantedScopes.includes(s));
@@ -161,67 +127,68 @@ export default function SettingsPanel() {
 
       <section>
         <h4 style={{margin:'0 0 0.4rem'}}>Playback</h4>
-        <div style={{fontSize:'0.6rem', lineHeight:'0.9rem', opacity:0.85}}>
+        <div style={{fontSize:'0.6rem', lineHeight:'0.95rem'}}>
           <div>Mode: <strong>{PLAYBACK_MODE}</strong></div>
-          <div>Round 1 Segment: {SEGMENT_DURATIONS.round1 || 10}s</div>
-          <div>Round 2 Segment: {SEGMENT_DURATIONS.round2 || 20}s</div>
-          <div>Enforce Pause: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
-          {PLAYBACK_MODE === 'FULL' && (
-            <>
-              <div style={{marginTop:'0.4rem'}}>
-                Player Status:{' '}
-                {spotifyPlayer?.error && (
-                  <span style={{color:'#ff6b6b'}}>Error: {spotifyPlayer.error}</span>
-                )}
-                {!spotifyPlayer?.error && (
-                  <span style={{color: spotifyPlayer?.ready ? '#4ade80' : '#fbbf24'}}>
-                    {spotifyPlayer?.ready ? 'Ready' : 'Initializing...'}
-                  </span>
-                )}
-              </div>
-              <div style={{fontSize:'0.55rem', opacity:0.7}}>
-                Device ID: {spotifyPlayer?.deviceId || '—'}
-              </div>
-              <div style={{marginTop:'0.4rem', display:'flex', gap:'0.4rem', flexWrap:'wrap'}}>
-                <button
-                  className="btn-outline"
-                  disabled={!spotifyPlayer?.deviceId || !accessToken || transferBusy}
-                  onClick={transferPlayback}
-                  style={{fontSize:'0.6rem'}}
-                >
-                  {transferBusy ? 'Transferring…' : 'Transfer Playback'}
-                </button>
-                <button
-                  className="btn-outline"
-                  disabled={!accessToken}
-                  onClick={() => {
-                    fetch('https://api.spotify.com/v1/me/player/devices', {
-                      headers: { Authorization: `Bearer ${accessToken}` }
-                    })
-                      .then(r=>r.json())
-                      .then(d=>console.log('[Spotify] Devices:', d));
-                  }}
-                  style={{fontSize:'0.6rem'}}
-                >
-                  List Devices (console)
-                </button>
-              </div>
-              {transferStatus && (
-                <div style={{fontSize:'0.55rem', marginTop:'0.3rem', opacity:0.8}}>
-                  Transfer: {transferStatus}
-                </div>
-              )}
-              <div style={{fontSize:'0.55rem', marginTop:'0.5rem', opacity:0.55}}>
-                If audio still plays elsewhere, press "Transfer Playback".
-              </div>
-            </>
-          )}
-          {PLAYBACK_MODE !== 'FULL' && (
-            <div style={{fontSize:'0.55rem', marginTop:'0.3rem', opacity:0.55}}>
-              Using 30s previews (or silence if none).
-            </div>
-          )}
+          <div>Round1 Segment: {SEGMENT_DURATIONS.round1/1000}s</div>
+          <div>Round2 Segment: {SEGMENT_DURATIONS.round2/1000}s</div>
+          <div>Segment Pause: {ENFORCE_SEGMENT_PAUSE ? 'Yes' : 'No'}</div>
         </div>
+
+        {PLAYBACK_MODE === 'FULL' && (
+          <div style={{marginTop:'0.5rem', fontSize:'0.6rem', lineHeight:'0.9rem'}}>
+            <div>Player Status: <strong>{spotifyPlayer?.status}</strong></div>
+            <div>Device ID: {spotifyPlayer?.deviceId || '—'}</div>
+            {!spotifyPlayer?.hasStreamingScope && (
+              <div style={{color:'#fbbf24', fontSize:'0.55rem', marginTop:'0.25rem'}}>
+                Missing streaming or modify-playback scope – authorize again.
+              </div>
+            )}
+            {spotifyPlayer?.error && (
+              <div style={{color:'#ff6b6b', fontSize:'0.55rem', marginTop:'0.25rem'}}>
+                {spotifyPlayer.error}
+              </div>
+            )}
+            <div style={{display:'flex', gap:'0.45rem', flexWrap:'wrap', marginTop:'0.5rem'}}>
+              <button
+                className="btn-outline"
+                disabled={!spotifyPlayer?.deviceId}
+                onClick={() => spotifyPlayer?.transferPlayback?.()}
+                style={{fontSize:'0.6rem'}}
+              >
+                Transfer Playback
+              </button>
+              <button
+                className="btn-outline"
+                onClick={() => spotifyPlayer?.reconnect?.()}
+                style={{fontSize:'0.6rem'}}
+              >
+                Reconnect Player
+              </button>
+              <button
+                className="btn-outline"
+                disabled={!accessToken}
+                onClick={() => {
+                  fetch('https://api.spotify.com/v1/me/player/devices', {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                  })
+                    .then(r => r.json())
+                    .then(d => console.log('[Spotify] Devices:', d));
+                }}
+                style={{fontSize:'0.6rem'}}
+              >
+                List Devices (console)
+              </button>
+            </div>
+            <div style={{fontSize:'0.5rem', opacity:0.55, marginTop:'0.4rem'}}>
+              Once status is "ready" but silent: click Transfer Playback (Spotify may need focus in another tab/client first).
+            </div>
+          </div>
+        )}
+        {PLAYBACK_MODE !== 'FULL' && (
+          <div style={{marginTop:'0.5rem', fontSize:'0.55rem', opacity:0.7}}>
+            Using preview / fallback mode (30s segments or silence if no preview).
+          </div>
+        )}
       </section>
 
       <section>
@@ -233,7 +200,7 @@ export default function SettingsPanel() {
         >
           <option value="simulation">Simulation</option>
           <option value="relay">Relay (WebSocket)</option>
-          <option value="direct">Direct (Placeholder)</option>
+          <option value="direct">Direct</option>
         </select>
         {chatMode === 'relay' && (
           <div style={{marginTop:'0.4rem'}}>
@@ -245,7 +212,7 @@ export default function SettingsPanel() {
             />
             <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
             <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-              Will auto-append /ws if missing.
+              /ws will be appended automatically if missing.
             </div>
           </div>
         )}
@@ -260,7 +227,7 @@ export default function SettingsPanel() {
         />
         <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveClientId}>Save Client ID</button>
         <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-          After changing Client ID: Logout & Login again to re-auth.
+          After changing Client ID: Logout & Login again.
         </div>
       </section>
 
@@ -286,7 +253,7 @@ export default function SettingsPanel() {
           <li><code>!vote A</code> / <code>!vote B</code> vote current battle</li>
           <li>Keys: <code>n</code>=next, <code>s</code>=skip stage, <code>q</code>=demo, <code>p</code>=pause</li>
           {PLAYBACK_MODE === 'FULL' && (
-            <li>If silent: re-auth scopes or use Transfer Playback.</li>
+            <li>If silent after ready: Use Transfer Playback.</li>
           )}
         </ul>
       </section>
