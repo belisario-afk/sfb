@@ -4,14 +4,9 @@ const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SCOPES = ['user-read-email'];
 
-// If you REALLY need to revert to the non-slash redirect, flip this to true
-const USE_LEGACY_NO_SLASH = false;
-
+// We now always use the root app URL as redirect (simplest for GitHub Pages SPA)
 function getRedirectUri() {
-  // Preferred (has a real callback/index.html page)
-  const preferred = window.location.origin + '/sfb/callback/';
-  const legacy = window.location.origin + '/sfb/callback';
-  return USE_LEGACY_NO_SLASH ? legacy : preferred;
+  return window.location.origin + '/sfb/';
 }
 
 export function startSpotifyAuth(clientId) {
@@ -33,10 +28,10 @@ export function startSpotifyAuth(clientId) {
 
 export async function exchangeCodeForToken(code, clientId) {
   const codeVerifier = localStorage.getItem('spotify_code_verifier');
-  const redirectUri = getRedirectUri();
   if (!codeVerifier) {
-    throw new Error('Missing code_verifier (PKCE). Clear storage and retry.');
+    throw new Error('Missing PKCE code_verifier. Clear localStorage and try again.');
   }
+  const redirectUri = getRedirectUri();
   const body = new URLSearchParams({
     client_id: clientId,
     grant_type: 'authorization_code',
@@ -63,27 +58,16 @@ export async function exchangeCodeForToken(code, clientId) {
   };
 }
 
-export function parseAuthCallback() {
-  const url = new URL(window.location.href);
-  return {
-    code: url.searchParams.get('code'),
-    state: url.searchParams.get('state'),
-    error: url.searchParams.get('error')
-  };
-}
-
-export async function searchTracks(accessToken, query) {
-  if (!query) return [];
-  const res = await fetch(`https://api.spotify.com/v1/search?${new URLSearchParams({
+export function searchTracks(accessToken, query) {
+  if (!query) return Promise.resolve([]);
+  return fetch(`https://api.spotify.com/v1/search?${new URLSearchParams({
     q: query,
     type: 'track',
     limit: '10'
   })}`, {
     headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.tracks.items;
+  }).then(r => r.ok ? r.json() : { tracks: { items: [] } })
+    .then(d => d.tracks.items);
 }
 
 export async function searchTopTrackByQuery(accessToken, query) {
@@ -91,10 +75,8 @@ export async function searchTopTrackByQuery(accessToken, query) {
   return results[0];
 }
 
-export async function getTrackById(accessToken, id) {
-  const res = await fetch(`https://api.spotify.com/v1/tracks/${id}`, {
+export function getTrackById(accessToken, id) {
+  return fetch(`https://api.spotify.com/v1/tracks/${id}`, {
     headers: { Authorization: `Bearer ${accessToken}` }
-  });
-  if (!res.ok) return null;
-  return res.json();
+  }).then(r => r.ok ? r.json() : null);
 }
