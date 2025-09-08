@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ensureFreshToken } from '../lib/spotify.js';
+import { ensureFreshToken, loadStoredTokens, hasRequiredScopes, REQUIRED_SCOPES } from '../lib/spotify.js';
 import { PLAYBACK_MODE } from '../config/playbackConfig.js';
 
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
@@ -9,34 +9,66 @@ export default function useSpotifyPlayer(clientId) {
   const [deviceId, setDeviceId] = useState(null);
   const [error, setError] = useState(null);
   const playerRef = useRef(null);
+  const initializingRef = useRef(false);
 
-  // Load SDK script once
+  // Token scope validation
   useEffect(() => {
     if (PLAYBACK_MODE !== 'FULL') return;
-    if (document.getElementById('spotify-sdk')) return;
-    const script = document.createElement('script');
-    script.id = 'spotify-sdk';
-    script.src = SDK_URL;
-    script.async = true;
-    document.head.appendChild(script);
+    const tok = loadStoredTokens();
+    if (tok && !hasRequiredScopes(tok)) {
+      setError('missing_scopes');
+    }
   }, []);
 
-  // Initialize player
+  // Load SDK & set global callback
   useEffect(() => {
     if (PLAYBACK_MODE !== 'FULL') return;
-    const clientIdEnv = clientId;
+    if (!clientId) {
+      setError('missing_client_id');
+      return;
+    }
 
-    function init() {
-      if (!window.Spotify) {
-        setTimeout(init, 200);
+    if (!window.onSpotifyWebPlaybackSDKReady) {
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        initPlayer();
+      };
+    }
+
+    if (!document.getElementById('spotify-sdk')) {
+      const script = document.createElement('script');
+      script.id = 'spotify-sdk';
+      script.src = SDK_URL;
+      script.async = true;
+      document.head.appendChild(script);
+    } else if (window.Spotify && !playerRef.current) {
+      // Script already present and loaded
+      initPlayer();
+    }
+
+    function initPlayer() {
+      if (initializingRef.current || playerRef.current) return;
+      const tok = loadStoredTokens();
+      if (!tok) {
+        console.log('[SpotifyPlayer] No tokens yet; will initialize after login.');
         return;
       }
+      if (!hasRequiredScopes(tok)) {
+        console.warn('[SpotifyPlayer] Missing required scopes. Needed:', REQUIRED_SCOPES.join(', '));
+        setError('missing_scopes');
+        return;
+      }
+      if (!window.Spotify) {
+        console.warn('[SpotifyPlayer] Spotify object not ready.');
+        return;
+      }
+      initializingRef.current = true;
+
       const player = new window.Spotify.Player({
         name: 'SFB Battle Player',
         getOAuthToken: async cb => {
           try {
-            const tokens = await ensureFreshToken(clientIdEnv);
-            if (tokens?.accessToken) cb(tokens.accessToken);
+            const fresh = await ensureFreshToken(clientId);
+            if (fresh?.accessToken) cb(fresh.accessToken);
           } catch (e) {
             console.warn('[SpotifyPlayer] token fetch error', e);
           }
@@ -59,10 +91,14 @@ export default function useSpotifyPlayer(clientId) {
       });
       player.addListener('authentication_error', ({ message }) => {
         console.error('[SpotifyPlayer] auth error', message);
-        setError(message);
+        if (message && message.toLowerCase().includes('scope')) {
+          setError('missing_scopes');
+        } else {
+          setError(message);
+        }
       });
       player.addListener('account_error', ({ message }) => {
-        console.error('[SpotifyPlayer] account error (Premium required?)', message);
+        console.error('[SpotifyPlayer] account error', message);
         setError(message);
       });
       player.addListener('playback_error', ({ message }) => {
@@ -70,11 +106,15 @@ export default function useSpotifyPlayer(clientId) {
         setError(message);
       });
 
-      player.connect();
+      player.connect().then(success => {
+        if (!success) {
+          console.warn('[SpotifyPlayer] connect() returned false');
+        }
+      });
+
       playerRef.current = player;
     }
 
-    init();
     return () => {
       if (playerRef.current) {
         playerRef.current.disconnect();
@@ -83,9 +123,11 @@ export default function useSpotifyPlayer(clientId) {
   }, [clientId]);
 
   const startTrackSegment = useCallback(async (accessToken, trackUri, deviceId, durationMs, onDone) => {
-    if (!trackUri || !deviceId) return;
+    if (!trackUri || !deviceId) {
+      onDone && onDone(false);
+      return;
+    }
     try {
-      // Start playback at 0
       const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
         method: 'PUT',
         headers: {
@@ -99,15 +141,19 @@ export default function useSpotifyPlayer(clientId) {
         onDone && onDone(false);
         return;
       }
-      setTimeout(async () => {
-        if (onDone) onDone(true);
-        // Pause after segment (if enforcing)
-        // (We always pause; battle engine handles next stage)
-        await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
-          method: 'PUT',
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).catch(()=>{});
-      }, durationMs);
+      if (durationMs > 0) {
+        setTimeout(async () => {
+          try {
+            await fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`, {
+              method: 'PUT',
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+          } catch {}
+          onDone && onDone(true);
+        }, durationMs);
+      } else {
+        onDone && onDone(true);
+      }
     } catch (e) {
       console.error('[SpotifyPlayer] segment error', e);
       onDone && onDone(false);

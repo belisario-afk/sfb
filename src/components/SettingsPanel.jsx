@@ -2,26 +2,34 @@ import React, { useState, useCallback } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 import { PLAYBACK_MODE, SEGMENT_DURATIONS, ENFORCE_SEGMENT_PAUSE } from '../config/playbackConfig.js';
 
-/**
- * Settings Panel
- * - Keeps all original controls (chat mode, relay URL, client ID, utilities)
- * - Adds visibility for Full Playback vs Preview mode
- * - Shows Spotify Web Playback SDK status (device readiness / error)
- * - Provides a "Transfer Playback" button to move playback to the in‑page player device
- *   (useful if Spotify is currently playing on another device)
- */
 export default function SettingsPanel() {
   const {
-    spotifyClientId, setSpotifyClientId,
+    // Auth & scopes
+    authState,
+    authError,
+    authChecking,
+    hasScopes,
+    requiredScopes,
+    beginSpotifyAuth,
+    logoutSpotify,
+
+    // Client ID
+    spotifyClientId,
+    setSpotifyClientId,
+
+    // Chat / relay
     chatMode, setChatMode,
     relayUrl, setRelayUrl,
+
+    // Battle controls
     addDemoPair,
     nextBattle,
     forceNextStage,
     togglePause,
-    // Expect these to be provided by AppContext (ensure AppContext passes them through from useBattleEngine):
-    spotifyPlayer,        // { ready, deviceId, error }
-    battle
+    battle,
+
+    // Player
+    spotifyPlayer
   } = useAppContext();
 
   const [localClientId, setLocalClientId] = useState(spotifyClientId);
@@ -30,7 +38,9 @@ export default function SettingsPanel() {
   const [transferBusy, setTransferBusy] = useState(false);
 
   const saveClientId = () => {
-    setSpotifyClientId(localClientId.trim());
+    const newId = localClientId.trim();
+    setSpotifyClientId(newId);
+    localStorage.setItem('customSpotifyClientId', newId);
   };
   const saveRelay = () => {
     setRelayUrl(localRelay.trim());
@@ -38,8 +48,7 @@ export default function SettingsPanel() {
 
   const accessToken = (() => {
     try {
-      const tok = JSON.parse(localStorage.getItem('spotifyTokens') || 'null');
-      return tok?.accessToken;
+      return JSON.parse(localStorage.getItem('spotifyTokens') || 'null')?.accessToken;
     } catch {
       return null;
     }
@@ -77,11 +86,81 @@ export default function SettingsPanel() {
     }
   }, [spotifyPlayer?.deviceId, accessToken]);
 
+  const scopeStatus = () => {
+    if (!authState) return 'Not Logged In';
+    if (authChecking) return 'Checking...';
+    if (authError) return 'Error';
+    if (!hasScopes) return 'Missing Scopes';
+    return 'OK';
+  };
+
+  const grantedScopes = authState?.scope ? authState.scope.split(/\s+/) : [];
+  const missingScopes = requiredScopes.filter(s => !grantedScopes.includes(s));
+
   return (
     <div className="panel" style={{flex:1, overflowY:'auto', display:'flex', flexDirection:'column', gap:'1rem'}}>
       <h3 style={{marginTop:0}}>Settings</h3>
 
-      <section style={{marginBottom:0}}>
+      <section>
+        <h4 style={{margin:'0 0 0.4rem'}}>Spotify Auth</h4>
+        <div style={{fontSize:'0.6rem', lineHeight:'0.9rem'}}>
+          <div>Status: <strong>{scopeStatus()}</strong></div>
+          {authError && (
+            <div style={{color:'#ff6b6b', fontSize:'0.55rem', marginTop:'0.25rem'}}>
+              {authError}
+            </div>
+          )}
+          <div style={{marginTop:'0.4rem', display:'flex', flexWrap:'wrap', gap:'0.4rem'}}>
+            {!authState && (
+              <button className="btn-outline" onClick={beginSpotifyAuth} disabled={authChecking || !spotifyClientId}>
+                {authChecking ? 'Authorizing...' : 'Login Spotify'}
+              </button>
+            )}
+            {authState && !hasScopes && (
+              <button className="btn-outline" onClick={beginSpotifyAuth} disabled={authChecking}>
+                Re-Auth (Add Scopes)
+              </button>
+            )}
+            {authState && (
+              <button className="btn-outline" onClick={logoutSpotify}>
+                Logout
+              </button>
+            )}
+          </div>
+          {authState && (
+            <div style={{marginTop:'0.5rem'}}>
+              <div style={{fontSize:'0.55rem', opacity:0.8, marginBottom:'0.25rem'}}>Granted Scopes:</div>
+              <div style={{display:'flex', flexWrap:'wrap', gap:'4px'}}>
+                {grantedScopes.map(s => (
+                  <span key={s} style={{
+                    background: hasRequiredScopes ? '#203a2f' : '#27313a',
+                    fontSize:'0.55rem',
+                    padding:'2px 6px',
+                    borderRadius:4
+                  }}>{s}</span>
+                ))}
+              </div>
+              {missingScopes.length > 0 && (
+                <div style={{marginTop:'0.4rem'}}>
+                  <div style={{fontSize:'0.55rem', opacity:0.75, marginBottom:'0.2rem'}}>Missing:</div>
+                  <div style={{display:'flex', flexWrap:'wrap', gap:'4px'}}>
+                    {missingScopes.map(s => (
+                      <span key={s} style={{
+                        background:'#45222f',
+                        fontSize:'0.55rem',
+                        padding:'2px 6px',
+                        borderRadius:4
+                      }}>{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section>
         <h4 style={{margin:'0 0 0.4rem'}}>Playback</h4>
         <div style={{fontSize:'0.6rem', lineHeight:'0.9rem', opacity:0.85}}>
           <div>Mode: <strong>{PLAYBACK_MODE}</strong></div>
@@ -110,7 +189,6 @@ export default function SettingsPanel() {
                   disabled={!spotifyPlayer?.deviceId || !accessToken || transferBusy}
                   onClick={transferPlayback}
                   style={{fontSize:'0.6rem'}}
-                  title="Transfer active playback to this in-browser player device"
                 >
                   {transferBusy ? 'Transferring…' : 'Transfer Playback'}
                 </button>
@@ -118,7 +196,6 @@ export default function SettingsPanel() {
                   className="btn-outline"
                   disabled={!accessToken}
                   onClick={() => {
-                    // Simple debug: list devices
                     fetch('https://api.spotify.com/v1/me/player/devices', {
                       headers: { Authorization: `Bearer ${accessToken}` }
                     })
@@ -136,7 +213,7 @@ export default function SettingsPanel() {
                 </div>
               )}
               <div style={{fontSize:'0.55rem', marginTop:'0.5rem', opacity:0.55}}>
-                If audio still plays on another device, press "Transfer Playback".
+                If audio still plays elsewhere, press "Transfer Playback".
               </div>
             </>
           )}
@@ -156,7 +233,7 @@ export default function SettingsPanel() {
           onChange={e => setChatMode(e.target.value)}
         >
           <option value="simulation">Simulation</option>
-            <option value="relay">Relay (WebSocket)</option>
+          <option value="relay">Relay (WebSocket)</option>
           <option value="direct">Direct (Placeholder)</option>
         </select>
         {chatMode === 'relay' && (
@@ -168,11 +245,9 @@ export default function SettingsPanel() {
               placeholder="wss://your-relay.example/ws"
             />
             <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveRelay}>Save Relay URL</button>
-          </div>
-        )}
-        {chatMode === 'relay' && (
-          <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-            Ensure the path ends with /ws (auto-corrected if omitted).
+            <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
+              Will auto-append /ws if missing.
+            </div>
           </div>
         )}
       </section>
@@ -186,7 +261,7 @@ export default function SettingsPanel() {
         />
         <button className="btn-outline" style={{marginTop:'0.4rem'}} onClick={saveClientId}>Save Client ID</button>
         <div style={{fontSize:'0.55rem', opacity:0.55, marginTop:'0.4rem'}}>
-          Changing Client ID requires re-auth (log out by clearing localStorage spotifyTokens).
+          After changing Client ID: Logout & Login again to re-auth.
         </div>
       </section>
 
@@ -195,12 +270,12 @@ export default function SettingsPanel() {
         <div style={{display:'flex', flexWrap:'wrap', gap:'0.5rem'}}>
           <button className="btn-outline" onClick={addDemoPair}>Add Demo Tracks</button>
           <button className="btn-outline" onClick={nextBattle}>{battle ? 'Next Battle' : 'Start Battle'}</button>
-          <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
+            <button className="btn-outline" onClick={forceNextStage}>Skip Stage</button>
           <button className="btn-outline" onClick={togglePause}>{battle?.paused ? 'Resume' : 'Pause'}</button>
         </div>
         {battle && (
           <div style={{fontSize:'0.55rem', opacity:0.65, marginTop:'0.4rem'}}>
-            Current Stage: {battle.stage} | Votes A: {battle.votes?.a?.size || 0} / B: {battle.votes?.b?.size || 0}
+            Stage: {battle.stage} | Votes A: {battle.votes?.a?.size || 0} / B: {battle.votes?.b?.size || 0}
           </div>
         )}
       </section>
@@ -208,11 +283,11 @@ export default function SettingsPanel() {
       <section>
         <h4 style={{margin:'0 0 0.4rem'}}>Help</h4>
         <ul style={{fontSize:'0.65rem', lineHeight:'0.9rem', opacity:0.85, paddingLeft:'1.1rem'}}>
-          <li><code>!battle &lt;query|url&gt;</code> add two tracks (will queue until enough)</li>
-          <li><code>!vote A</code> / <code>!vote B</code> to vote for current battle</li>
-          <li>Keyboard: <code>n</code>=next battle, <code>s</code>=skip stage, <code>q</code>=add demo pair, <code>p</code>=pause</li>
+          <li><code>!battle &lt;query&gt;</code> add top track of query</li>
+          <li><code>!vote A</code> / <code>!vote B</code> vote current battle</li>
+          <li>Keys: <code>n</code>=next battle, <code>s</code>=skip stage, <code>q</code>=demo, <code>p</code>=pause</li>
           {PLAYBACK_MODE === 'FULL' && (
-            <li>If no audio, click "Transfer Playback" or ensure Premium account.</li>
+            <li>If silent: re-auth for scopes or use Transfer Playback.</li>
           )}
         </ul>
       </section>

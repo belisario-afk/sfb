@@ -5,19 +5,12 @@ import { PLAYBACK_MODE } from '../config/playbackConfig.js';
 import useSpotifyPlayer from './useSpotifyPlayer.js';
 import { loadStoredTokens } from '../lib/spotify.js';
 
-/**
- * Battle Engine supporting FULL or PREVIEW playback modes.
- * FULL mode uses Web Playback SDK (premium) else falls back to preview_url.
- */
-const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-
-export default function useBattleEngine() {
+export default function useBattleEngine(clientId) {
   const [queue, setQueue] = useState([]);
   const [currentBattle, setCurrentBattle] = useState(null);
   const timerRef = useRef(null);
 
-  // Integrate player (even if PREVIEW mode we can ignore)
-  const spotifyPlayer = useSpotifyPlayer(SPOTIFY_CLIENT_ID);
+  const spotifyPlayer = useSpotifyPlayer(clientId);
 
   const addTrack = (track) => {
     if (!track) return;
@@ -29,7 +22,6 @@ export default function useBattleEngine() {
       if (prev && prev.stage !== 'finished') return prev;
       return null;
     });
-
     setQueue(q => {
       if (q.length < 2) return q;
       const [a, b, ...rest] = q;
@@ -48,40 +40,28 @@ export default function useBattleEngine() {
   }, []);
 
   const playStageSegment = useCallback((battle, nextStage) => {
-    const clientId = SPOTIFY_CLIENT_ID;
-    if (!clientId) {
-      console.warn('[Battle] Missing VITE_SPOTIFY_CLIENT_ID env var.');
-    }
-    const tokens = loadStoredTokens(); // used to decide if we can attempt full
-    const attemptFull = !!tokens && PLAYBACK_MODE === 'FULL';
-
+    const tokens = loadStoredTokens();
     let track = null;
     let sideLabel = '';
-    if (nextStage === 'round1A') {
-      track = battle.a; sideLabel = 'A';
-    } else if (nextStage === 'round1B') {
-      track = battle.b; sideLabel = 'B';
-    } else if (nextStage === 'round2A') {
+    if (nextStage === 'round1A') { track = battle.a; sideLabel = 'A'; }
+    else if (nextStage === 'round1B') { track = battle.b; sideLabel = 'B'; }
+    else if (nextStage === 'round2A') {
       if (battle.round1Leader === 'a') { track = battle.a; sideLabel = 'A'; }
       else { track = battle.b; sideLabel = 'B'; }
     } else if (nextStage === 'round2B') {
       if (battle.round1Leader === 'a') { track = battle.b; sideLabel = 'B'; }
       else { track = battle.a; sideLabel = 'A'; }
     }
-
     if (!track) return;
-
     playBattleSegment({
       clientId,
       track,
       stage: nextStage,
       sideLabel,
       spotifyPlayer,
-      onFallback: () => {
-        // optional logging or badge
-      }
+      onFallback: () => {}
     });
-  }, [spotifyPlayer]);
+  }, [spotifyPlayer, clientId]);
 
   const proceed = useCallback(() => {
     setCurrentBattle(b => {
@@ -106,7 +86,7 @@ export default function useBattleEngine() {
           break;
         case 'round2A':
           next.stage = 'round2B';
-            playStageSegment(b, 'round2B');
+          playStageSegment(b, 'round2B');
           break;
         case 'round2B':
           next.stage = 'finished';
@@ -120,16 +100,13 @@ export default function useBattleEngine() {
     });
   }, [playStageSegment]);
 
-  // Timers
   useEffect(() => {
     clearTimeout(timerRef.current);
     if (!currentBattle || currentBattle.paused) return;
-
     let delay = 2000;
     if (['round1A','round1B'].includes(currentBattle.stage)) delay = 10000;
     else if (['round2A','round2B'].includes(currentBattle.stage)) delay = 20000;
     else if (currentBattle.stage === 'finished') delay = 4000;
-
     timerRef.current = setTimeout(() => {
       if (currentBattle.stage === 'finished') {
         tryStartBattle();
@@ -137,7 +114,6 @@ export default function useBattleEngine() {
         proceed();
       }
     }, delay);
-
     return () => clearTimeout(timerRef.current);
   }, [currentBattle, proceed, tryStartBattle]);
 
@@ -162,9 +138,7 @@ export default function useBattleEngine() {
     tryStartBattle,
     vote,
     forceNextStage: () => proceed(),
-    togglePause: () => {
-      setCurrentBattle(b => b ? { ...b, paused: !b.paused } : b);
-    },
+    togglePause: () => setCurrentBattle(b => b ? { ...b, paused: !b.paused } : b),
     addTrackList: (list) => list.forEach(addTrack),
     spotifyPlayer
   };

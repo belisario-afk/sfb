@@ -3,8 +3,7 @@ import { generateCodeChallenge, generateCodeVerifier } from './pkce.js';
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com/authorize';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 
-// Expanded scopes for full playback
-const SCOPES = [
+export const REQUIRED_SCOPES = [
   'streaming',
   'user-read-email',
   'user-read-private',
@@ -16,6 +15,16 @@ function getRedirectUri() {
   return window.location.origin + '/sfb/';
 }
 
+function buildScopeParam() {
+  return REQUIRED_SCOPES.join(' ');
+}
+
+export function hasRequiredScopes(tokenObj) {
+  if (!tokenObj?.scope) return false;
+  const granted = tokenObj.scope.split(/\s+/);
+  return REQUIRED_SCOPES.every(s => granted.includes(s));
+}
+
 export function startSpotifyAuth(clientId) {
   const codeVerifier = generateCodeVerifier();
   localStorage.setItem('spotify_code_verifier', codeVerifier);
@@ -25,7 +34,7 @@ export function startSpotifyAuth(clientId) {
       client_id: clientId,
       response_type: 'code',
       redirect_uri: redirectUri,
-      scope: SCOPES.join(' '),
+      scope: buildScopeParam(),
       code_challenge_method: 'S256',
       code_challenge: codeChallenge
     });
@@ -33,64 +42,56 @@ export function startSpotifyAuth(clientId) {
   });
 }
 
+async function tokenRequest(body) {
+  const res = await fetch(SPOTIFY_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=> '');
+    throw new Error('Spotify token endpoint failed: ' + res.status + ' ' + txt);
+  }
+  return res.json();
+}
+
 export async function exchangeCodeForToken(code, clientId) {
   const codeVerifier = localStorage.getItem('spotify_code_verifier');
   if (!codeVerifier) throw new Error('Missing PKCE code_verifier.');
-  const body = new URLSearchParams({
+  const data = await tokenRequest(new URLSearchParams({
     client_id: clientId,
     grant_type: 'authorization_code',
     code,
     redirect_uri: getRedirectUri(),
     code_verifier: codeVerifier
-  });
-  const res = await fetch(SPOTIFY_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(()=> '');
-    throw new Error('Token exchange failed: ' + res.status + ' ' + txt);
-  }
-  const data = await res.json();
+  }));
+  return storeTokenResponse(data);
+}
+
+export async function refreshAccessToken(clientId) {
+  const stored = loadStoredTokens();
+  if (!stored?.refreshToken) throw new Error('No refresh token stored.');
+  const data = await tokenRequest(new URLSearchParams({
+    client_id: clientId,
+    grant_type: 'refresh_token',
+    refresh_token: stored.refreshToken
+  }));
+  // Refresh responses may omit refresh_token if unchanged
+  if (!data.refresh_token) data.refresh_token = stored.refreshToken;
+  return storeTokenResponse(data, stored);
+}
+
+function storeTokenResponse(data, prev) {
   const expires_at = Date.now() + (data.expires_in * 1000) - 60000;
   const tokenObj = {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
-    tokenType: data.token_type,
+    tokenType: data.token_type || prev?.tokenType || 'Bearer',
     expires_at,
-    scope: data.scope
+    scope: data.scope || prev?.scope || ''
   };
   localStorage.setItem('spotifyTokens', JSON.stringify(tokenObj));
   return tokenObj;
-}
-
-export async function refreshAccessToken(clientId) {
-  const stored = JSON.parse(localStorage.getItem('spotifyTokens') || 'null');
-  if (!stored?.refreshToken) throw new Error('No refresh token stored.');
-  const body = new URLSearchParams({
-    client_id: clientId,
-    grant_type: 'refresh_token',
-    refresh_token: stored.refreshToken
-  });
-  const res = await fetch(SPOTIFY_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(()=> '');
-    throw new Error('Refresh failed: ' + res.status + ' ' + txt);
-  }
-  const data = await res.json();
-  const expires_at = Date.now() + (data.expires_in * 1000) - 60000;
-  const newObj = {
-    ...stored,
-    accessToken: data.access_token,
-    expires_at
-  };
-  localStorage.setItem('spotifyTokens', JSON.stringify(newObj));
-  return newObj;
 }
 
 export function loadStoredTokens() {
