@@ -2,10 +2,10 @@ import React, { useMemo } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 
 /**
- * WinnerFocus: Big celebratory focus during 'victory_play'
- * - Large album art
- * - Requester avatar with crown (robust fallbacks for avatar fields)
- * - Pulsing glow ring + animated equalizer bars
+ * WinnerFocus: celebratory focus during 'victory_play'
+ * - Album art
+ * - Requester avatar (robust fallbacks)
+ * - Title/artist info
  */
 export default function WinnerFocus() {
   const { battle } = useAppContext() || {};
@@ -24,11 +24,7 @@ export default function WinnerFocus() {
     '';
 
   const rb = winTrack?._requestedBy || {};
-  const requester =
-    rb.name ||
-    rb.username ||
-    '';
-
+  const requester = rb.name || rb.username || '';
   const avatar =
     rb.avatar ||
     rb.avatarUrl ||
@@ -50,36 +46,21 @@ export default function WinnerFocus() {
           <div style={styles.title} title={winTrack?.name}>{winTrack?.name}</div>
           <div style={styles.artists}>{(winTrack?.artists || []).map(a => a.name).join(', ')}</div>
 
-          <div style={styles.requesterRow}>
-            {avatar ? (
-              <div style={{ ...styles.avatarWrap, boxShadow: `0 0 16px ${sideColor}80` }}>
-                <img src={avatar} alt="" style={styles.avatarImg} />
-                <div style={styles.crown}>👑</div>
-              </div>
-            ) : (
-              <div style={styles.crownOnly}>👑</div>
-            )}
-            {requester && <div style={styles.requesterName}>Requested by {requester}</div>}
-          </div>
+          {(requester || avatar) && (
+            <div style={styles.requesterRow}>
+              {avatar ? (
+                <div style={{ ...styles.avatarWrap, boxShadow: `0 0 16px ${sideColor}80` }}>
+                  <img src={avatar} alt="" style={styles.avatarImg} />
+                  <div style={styles.crown}>👑</div>
+                </div>
+              ) : (
+                <div style={styles.crownOnly}>👑</div>
+              )}
+              {requester && <div style={styles.requesterName}>Requested by {requester}</div>}
+            </div>
+          )}
         </div>
-
-        <Bars color={sideColor} />
       </div>
-    </div>
-  );
-}
-
-function Bars({ color = '#00E7FF' }) {
-  return (
-    <div style={styles.barsWrap}>
-      {Array.from({ length: 24 }).map((_, i) => (
-        <div key={i} style={{
-          ...styles.bar,
-          background: color,
-          animationDelay: (i * 40) + 'ms',
-          height: 10 + (i % 5) * 4
-        }} />
-      ))}
     </div>
   );
 }
@@ -102,8 +83,7 @@ const styles = {
     minWidth: '340px',
     maxWidth: '88vw',
     textAlign: 'center',
-    backdropFilter: 'blur(10px)',
-    animation: 'focusPop 420ms ease-out'
+    backdropFilter: 'blur(10px)'
   },
   ring: {
     position: 'relative',
@@ -177,20 +157,6 @@ const styles = {
   requesterName: {
     fontSize: 13,
     opacity: 0.95
-  },
-  barsWrap: {
-    display: 'flex',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 4,
-    height: 50,
-    marginTop: 2
-  },
-  bar: {
-    width: 7,
-    borderRadius: 3,
-    opacity: 0.95,
-    animation: 'barDance 640ms ease-in-out infinite alternate'
   }
 };
 
@@ -200,15 +166,6 @@ if (typeof document !== 'undefined' && !document.getElementById(styleElId)) {
   const el = document.createElement('style');
   el.id = styleElId;
   el.textContent = `
-@keyframes focusPop {
-  0% { transform: scale(0.94); opacity: 0; }
-  60% { transform: scale(1.02); opacity: 1; }
-  100% { transform: scale(1.0); opacity: 1; }
-}
-@keyframes barDance {
-  0% { transform: scaleY(0.6); }
-  100% { transform: scaleY(1.9); }
-}
 @keyframes pulse {
   0% { transform: scale(0.95); opacity: 0.6; }
   70% { transform: scale(1.08); opacity: 0.1; }

@@ -386,6 +386,7 @@ export default function useBattleEngine(spotifyClientId) {
     if (PLAYBACK_MODE === 'FULL') {
       playSpotifySegment(track, segment.offsetMs);
     } else {
+      // Ensure any previous preview is stopped before starting a new one
       stopAllPreviews();
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
@@ -445,6 +446,7 @@ export default function useBattleEngine(spotifyClientId) {
     try {
       const res = await doPlay();
       if (!res.ok) {
+        // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
           const retryKey = (track.id || track.uri) + ':' + offsetMs;
           if (playbackRetryRef.current.key !== retryKey) {
@@ -526,6 +528,6 @@ export default function useBattleEngine(spotifyClientId) {
     spotifyPlayer,
     setSpotifyPlayer,
     voteRemaining,
-    promoteRequesterLatest
+    promoteRequesterLatest // exposed for mega gifts
   };
 }

@@ -13,7 +13,7 @@ export default function ChatTicker({ limit = 60 }) {
         const next = [...prev, {
           id: `${msg.platform}:${msg.userId}:${msg.ts}`,
           name: msg.displayName || msg.username || 'viewer',
-          avatar: msg.avatarUrl || '',
+          avatar: msg.avatarUrl || msg.avatar || msg.profilePictureUrl || '',
           text: msg.text || ''
         }];
         if (next.length > limit) next.shift();
