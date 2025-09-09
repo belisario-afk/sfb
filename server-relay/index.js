@@ -1,225 +1,199 @@
-/* SFB TikTok Relay (CJS)
-   - Compatible with tiktok-live-connector v1.x and v2.x
-   - WS path: /ws
-   - Client subscribe payload:
-       { "type":"subscribe", "platform":"tiktok", "room":"<tiktok_username>" }
-   - Broadcast shape:
-       { type:'chat', platform:'tiktok', userId, username, displayName, avatarUrl, text, ts }
-*/
+/**
+ * Hardened TikTok -> WebSocket relay
+ * - Prevents process crash on connector edge cases
+ * - Normalizes gift events
+ * - Logs connection lifecycle
+ */
+import 'dotenv/config';
+import http from 'http';
+import WebSocket, { WebSocketServer } from 'ws';
+import { WebcastPushConnection } from 'tiktok-live-connector';
 
-const http = require('http');
-const express = require('express');
-const cors = require('cors');
-const { WebSocketServer } = require('ws');
+const PORT = Number(process.env.PORT || 10000);
+const TIKTOK_ROOM = process.env.TIKTOK_ROOM || 'lmohss';
 
-const PORT = process.env.PORT || 10000;
-const DEFAULT_ROOM = (process.env.TIKTOK_USERNAME || '').trim();
-const SERVICE_NAME = process.env.SERVICE_NAME || 'sfb-relay';
+// Global hardening: never crash the process
+process.on('uncaughtException', (err) => {
+  console.error('[Relay] UncaughtException:', err?.stack || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[Relay] UnhandledRejection:', reason);
+});
 
-let ConnectorCtor = null;
-let connectorVersion = 'unknown';
-let connectorName = 'unknown';
-try {
-  const mod = require('tiktok-live-connector');
-  if (typeof mod === 'function') {
-    ConnectorCtor = mod;
-    connectorName = 'TikTokLiveConnection(default)';
-  } else if (mod && typeof mod.default === 'function') {
-    ConnectorCtor = mod.default;
-    connectorName = 'TikTokLiveConnection(default)';
-  } else if (mod && typeof mod.WebcastPushConnection === 'function') {
-    ConnectorCtor = mod.WebcastPushConnection;
-    connectorName = 'WebcastPushConnection';
-  } else if (mod && typeof mod.TikTokLiveConnection === 'function') {
-    ConnectorCtor = mod.TikTokLiveConnection;
-    connectorName = 'TikTokLiveConnection(named)';
-  }
-  try {
-    connectorVersion = require('tiktok-live-connector/package.json').version || 'unknown';
-  } catch {}
-  if (ConnectorCtor) {
-    console.log(`[Relay] Loaded tiktok-live-connector v${connectorVersion} (${connectorName})`);
+console.log('[Relay] Loaded tiktok-live-connector', process.env.npm_package_dependencies?.['tiktok-live-connector'], '(WebcastPushConnection)');
+
+// HTTP server (for Render/health)
+const server = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200).end('ok');
   } else {
-    console.warn('[Relay] tiktok-live-connector loaded but no compatible constructor export was found.');
+    res.writeHead(200).end('TikTok Relay');
   }
-} catch (e) {
-  console.error('[Relay] Failed to load tiktok-live-connector:', e?.message || e);
-  console.warn('[Relay] TikTok connector unavailable. Relay will NOT stream live chat.');
+});
+
+const wss = new WebSocketServer({ noServer: true });
+const rooms = new Map(); // roomId -> { conn, clients:Set<ws> }
+
+function broadcast(room, data) {
+  const bucket = rooms.get(room);
+  if (!bucket) return;
+  const payload = JSON.stringify(data);
+  for (const ws of bucket.clients) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload);
+    }
+  }
 }
 
-const app = express();
-app.use(cors());
-app.disable('x-powered-by');
-
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-/** username -> { conn, clients:Set<WebSocket>, refCount:number, connecting:boolean } */
-const rooms = new Map();
-
-function getStatus() {
-  const active = Array.from(rooms.entries()).map(([k, v]) => ({
-    room: k,
-    clients: v.clients.size
-  }));
+function normalizeUser(u = {}) {
   return {
-    status: 'ok',
-    service: SERVICE_NAME,
-    tiktok: DEFAULT_ROOM || '',
-    disabled: !ConnectorCtor,
-    connector_version: connectorVersion,
-    connector_name: connectorName,
-    uptime_sec: Math.round(process.uptime()),
-    activeRooms: active
+    userId: u.userId || u.user_id || u.id || '',
+    username: u.uniqueId || u.username || u.displayId || '',
+    displayName: u.nickname || u.displayName || u.uniqueId || '',
+    avatarUrl:
+      u.avatarThumb ||
+      u.avatarThumbUrl ||
+      u.profilePictureUrl ||
+      (u.avatar && (u.avatar?.thumb_url || u.avatar?.thumbUrl)) ||
+      ''
   };
 }
 
-app.get('/', (_req, res) => {
-  res.json(getStatus());
-});
+function normalizeGift(e) {
+  const data = e || {};
+  const user = normalizeUser(data.user || data.userInfo || data);
+  const details = data.gift || data.giftDetails || data.gift_info || {};
+  const repeatEnd = Boolean(
+    data.repeatEnd ??
+    data.isRepeatEnd ??
+    data.data?.repeatEnd ??
+    true
+  );
+  const coins = Number(
+    data.value ??
+    data.coins ??
+    data.diamondCount ??
+    data.count ??
+    details.diamond_count ??
+    details.diamondCount ??
+    0
+  ) || 0;
+  const giftName = String(
+    data.giftName ||
+    details.name ||
+    details.gift_name ||
+    ''
+  );
 
-function ensureRoom(username) {
-  const key = String(username || '').trim().toLowerCase();
-  if (!key) return null;
-  if (rooms.has(key)) return rooms.get(key);
-
-  if (!ConnectorCtor) {
-    console.warn('[Relay] TikTok module unavailable; cannot create room:', key);
-    const placeholder = { conn: null, clients: new Set(), refCount: 0, connecting: false };
-    rooms.set(key, placeholder);
-    return placeholder;
-  }
-
-  const conn = new ConnectorCtor(key, {
-    enableWebsocketUpgrade: true
-  });
-
-  conn.on('connected', () => console.log('[Relay] Connected to TikTok room:', key));
-  conn.on('disconnected', () => console.log('[Relay] Disconnected for', key));
-  conn.on('streamEnd', () => console.log('[Relay] Stream ended for', key));
-  conn.on('error', (err) => console.warn('[Relay] TikTok error for', key, err?.message || err));
-
-  conn.on('chat', (data) => {
-    const msg = normalizeChat(data);
-    const room = rooms.get(key);
-    if (!room) return;
-    for (const ws of room.clients) {
-      try { ws.send(JSON.stringify(msg)); } catch {}
-    }
-  });
-
-  const room = { conn, clients: new Set(), refCount: 0, connecting: false };
-  rooms.set(key, room);
-  console.log('[Relay] Created room:', key, `(${connectorName})`);
-  return room;
-}
-
-async function connectRoom(username, room) {
-  if (!room?.conn || room.connecting) return;
-  room.connecting = true;
-  try {
-    console.log('[Relay] Connecting to TikTok room:', username);
-    await room.conn.connect();
-  } catch (e) {
-    console.error('[Relay] Connect error for', username, e?.message || e);
-  } finally {
-    room.connecting = false;
-  }
-}
-
-function normalizeChat(d) {
-  const userId = toStr(d?.userId || d?.user?.userId || '');
-  const username = d?.uniqueId || d?.user?.uniqueId || '';
-  const displayName = d?.nickname || d?.user?.nickname || username || 'viewer';
-  const avatarUrl = d?.profilePictureUrl || d?.user?.profilePictureUrl || '';
-  const text = d?.comment || d?.text || d?.message || '';
   return {
-    type: 'chat',
+    type: 'gift',
     platform: 'tiktok',
-    userId,
-    username,
-    displayName,
-    avatarUrl,
-    text,
+    ...user,
+    giftId: details.gift_id || details.id || data.giftId || '',
+    giftName,
+    value: coins,
+    repeatEnd,
     ts: Date.now()
   };
 }
-function toStr(v) { return (v === undefined || v === null) ? '' : String(v); }
 
-wss.on('connection', (ws, req) => {
-  let subscribedRoom = null;
+async function connectRoom(roomName) {
+  if (rooms.has(roomName)) return rooms.get(roomName);
 
-  // Optional auto-bind default room
-  if (DEFAULT_ROOM) {
-    subscribedRoom = ensureRoom(DEFAULT_ROOM);
-    if (subscribedRoom) {
-      subscribedRoom.clients.add(ws);
-      subscribedRoom.refCount += 1;
-      connectRoom(DEFAULT_ROOM, subscribedRoom);
+  // Connector options: keep defaults; rely on our postinstall patch for legacy guard
+  const tiktok = new WebcastPushConnection(roomName, {
+    // If you see throttling or need different behavior, options can go here.
+    // enableExtendedGiftInfo: true,
+  });
+
+  console.log('[Relay] Connecting to TikTok room:', roomName);
+
+  // Lifecycle
+  tiktok
+    .connect()
+    .then(state => {
+      console.log('[Relay] Connected to TikTok room:', roomName);
+      broadcast(roomName, { type: 'connected', platform: 'tiktok', room: roomName, state });
+    })
+    .catch(err => {
+      console.error('[Relay] TikTok connect error for', roomName, err);
+      broadcast(roomName, { type: 'error', platform: 'tiktok', room: roomName, error: err?.message || String(err) });
+    });
+
+  // Events
+  tiktok.on('gift', (ev) => {
+    try {
+      broadcast(roomName, normalizeGift(ev));
+    } catch (e) {
+      console.error('[Relay] gift normalize error:', e?.message || e);
     }
-  }
+  });
 
-  ws.on('message', async (raw) => {
-    let data;
-    try { data = JSON.parse(raw.toString()); } catch { return; }
-
-    if (data?.type === 'ping' || data?.op === 'ping') {
-      try { ws.send(JSON.stringify({ type: 'pong', ts: Date.now() })); } catch {}
-      return;
+  tiktok.on('chat', (msg) => {
+    try {
+      const user = normalizeUser(msg?.user || {});
+      const text = msg?.comment || msg?.commentText || msg?.text || '';
+      broadcast(roomName, {
+        type: 'chat',
+        platform: 'tiktok',
+        ...user,
+        text,
+        ts: Date.now()
+      });
+    } catch (e) {
+      console.error('[Relay] chat normalize error:', e?.message || e);
     }
+  });
 
-    if (data?.type === 'subscribe' && data?.platform === 'tiktok' && data?.room) {
-      const username = String(data.room).trim().toLowerCase();
-      if (!username) return;
+  tiktok.on('follow', (ev) => {
+    const user = normalizeUser(ev?.user || {});
+    broadcast(roomName, { type: 'follow', platform: 'tiktok', ...user, ts: Date.now() });
+  });
 
-      console.log('[Relay] WS subscribe request for room', JSON.stringify(username), 'from', req.socket?.remoteAddress || 'client');
+  tiktok.on('roomUser', (ev) => {
+    broadcast(roomName, { type: 'roomUser', platform: 'tiktok', viewerCount: ev?.viewerCount ?? ev?.data?.viewerCount ?? 0, ts: Date.now() });
+  });
 
-      const room = ensureRoom(username);
-      if (!room) return;
-
-      if (subscribedRoom && subscribedRoom !== room) {
-        try {
-          subscribedRoom.clients.delete(ws);
-          subscribedRoom.refCount = Math.max(0, subscribedRoom.refCount - 1);
-          scheduleRoomDisconnect(subscribedRoom);
-        } catch {}
-      }
-
-      room.clients.add(ws);
-      subscribedRoom = room;
-      room.refCount += 1;
-
-      // Send ACK so clients see immediate confirmation
+  tiktok.on('disconnected', (ev) => {
+    console.warn('[Relay] Disconnected from TikTok room:', roomName, ev || '');
+    broadcast(roomName, { type: 'disconnected', platform: 'tiktok', room: roomName, ts: Date.now() });
+    // Auto-reconnect
+    setTimeout(() => {
       try {
-        ws.send(JSON.stringify({ type: 'subscribed', platform: 'tiktok', room: username, ts: Date.now() }));
+        tiktok.connect().catch(() => {});
       } catch {}
-
-      // Always attempt connect (debounced)
-      connectRoom(username, room);
-      return;
-    }
+    }, 2000);
   });
 
-  ws.on('close', () => {
-    if (subscribedRoom) {
-      subscribedRoom.clients.delete(ws);
-      subscribedRoom.refCount = Math.max(0, subscribedRoom.refCount - 1);
-      scheduleRoomDisconnect(subscribedRoom);
-    }
-  });
-});
-
-function scheduleRoomDisconnect(room) {
-  setTimeout(() => {
-    if (room.refCount <= 0 && room.conn && typeof room.conn.disconnect === 'function') {
-      try { room.conn.disconnect(); } catch {}
-    }
-  }, 15000);
+  const bucket = { conn: tiktok, clients: new Set() };
+  rooms.set(roomName, bucket);
+  return bucket;
 }
 
-server.listen(PORT, () => {
-  if (!ConnectorCtor) {
-    console.warn('[Relay] TikTok connector unavailable. Relay will NOT stream live chat.');
+// Upgrade HTTP -> WS
+server.on('upgrade', async (req, socket, head) => {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    const room = url.searchParams.get('room') || TIKTOK_ROOM;
+    await connectRoom(room);
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      const bucket = rooms.get(room);
+      bucket.clients.add(ws);
+      console.log('[Relay] WS subscribe request for room "%s" from %s', room, req.socket.remoteAddress);
+      ws.send(JSON.stringify({ type: 'subscribed', platform: 'tiktok', room, ts: Date.now() }));
+
+      ws.on('close', () => {
+        bucket.clients.delete(ws);
+      });
+    });
+  } catch (e) {
+    console.error('[Relay] Upgrade error:', e?.message || e);
+    socket.destroy();
   }
-  console.log(`[Relay] Listening on port ${PORT}`);
+});
+
+server.listen(PORT, () => {
+  console.log('[Relay] Listening on port', PORT);
+  console.log('[Relay] Created room:', TIKTOK_ROOM, '(WebcastPushConnection)');
 });
