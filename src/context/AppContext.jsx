@@ -149,7 +149,8 @@ export function AppProvider({ children }) {
     forceNextStage,
     togglePause,
     setSpotifyPlayer: setEngineSpotifyPlayer,
-    voteRemaining
+    voteRemaining,
+    promoteRequesterLatest
   } = battleEngine;
 
   useEffect(() => {
@@ -260,6 +261,9 @@ export function AppProvider({ children }) {
   const battleRef = useRef(null);
   useEffect(() => { battleRef.current = battle; }, [battle]);
 
+  // Gift banner state for big promotions
+  const [giftBanner, setGiftBanner] = useState(null); // { username, amount, ts }
+
   // Reset hype and per-battle votes tracking when a new battle starts
   useEffect(() => {
     if (!battle) return;
@@ -285,7 +289,6 @@ export function AppProvider({ children }) {
   }
 
   function getGiftCoins(msg) {
-    // Support multiple payload shapes
     if (!msg) return 0;
     const data = msg.data || {};
     return Number(
@@ -298,11 +301,15 @@ export function AppProvider({ children }) {
     ) || 0;
   }
 
+  function getGiftName(msg) {
+    const data = msg?.data || {};
+    return (msg?.giftName || data.giftName || data.gift_name || '').toString();
+  }
+
   function isGiftRepeatEnd(msg) {
     const data = msg?.data || {};
     const v = (msg?.repeatEnd ?? data.repeatEnd);
     if (typeof v === 'boolean') return v;
-    // Default true to avoid missing gifts on some relays
     return true;
   }
 
@@ -320,28 +327,58 @@ export function AppProvider({ children }) {
     if (!coins) return;
     if (!isGiftRepeatEnd(msg)) return;
 
-    // Small [1,19], Medium [20,99] affect hype/effects
+    const giftName = getGiftName(msg).toLowerCase();
+
+    // Mega rule: Money Gun OR coins >= 500 -> promote requester's song to front
+    const isMoneyGun = giftName.includes('money gun') || giftName.includes('moneygun');
+    const isMega = coins >= 500 || isMoneyGun;
+
+    // Medium/Small hype effects (kept from earlier behavior)
     const isMedium = coins >= 20 && coins <= 99;
     const isSmall = coins > 0 && coins < 20;
-    if (!isSmall && !isMedium) return;
 
-    let side = resolveGiftSideFromVote(msg);
-    if (!side) {
-      // Attribute to current leader during voting windows to ensure gifts have visible effect
-      const b = battleRef.current;
-      const inVoting = b?.stage?.startsWith?.('vote');
-      if (inVoting) {
-        side = resolveLeaderSide();
+    // If mega, promote requester's queued song
+    if (isMega) {
+      const requester = {
+        id: msg.userId || '',
+        username: msg.username || '',
+        name: msg.displayName || msg.username || '',
+        avatar: msg.avatarUrl || ''
+      };
+      const moved = promoteRequesterLatest(requester);
+      if (moved) {
+        setGiftBanner({
+          username: requester.name || requester.username || 'Viewer',
+          amount: coins,
+          ts: Date.now()
+        });
+        // auto-clear banner after 5s
+        setTimeout(() => setGiftBanner(null), 5000);
+        console.log('[Gift][PROMOTE]', coins, 'coins by', requester.username || requester.name);
+      } else {
+        console.log('[Gift][PROMOTE] No queued request to promote for', requester.username || requester.name);
       }
+      // Mega gifts do not alter hype in this step (rule not requested), but could if desired.
+      return;
     }
 
-    if (side) {
-      addHype(side, isMedium ? 2 : 1);
-    } else {
-      // Unknown side (no leader or outside battle): pulse both lightly
-      setHypePulse(prev => ({ a: prev.a + 1, b: prev.b + 1 }));
+    // Small/Medium: affect hype and pulses
+    if (isSmall || isMedium) {
+      let side = resolveGiftSideFromVote(msg);
+      if (!side) {
+        const b = battleRef.current;
+        const inVoting = b?.stage?.startsWith?.('vote');
+        if (inVoting) {
+          side = resolveLeaderSide();
+        }
+      }
+      if (side) {
+        addHype(side, isMedium ? 2 : 1);
+      } else {
+        setHypePulse(prev => ({ a: prev.a + 1, b: prev.b + 1 }));
+      }
+      console.log('[Gift]', coins, 'coins ->', side || 'neutral', '(small/medium)');
     }
-    console.log('[Gift]', coins, 'coins ->', side || 'neutral', '(small/medium)');
   }
 
   /* ---------- Chat commands from TikTok relay ---------- */
@@ -515,9 +552,8 @@ export function AppProvider({ children }) {
     hype,
     hypePulse,
 
-    // UI / modal
-    modalOpen,
-    setModalOpen,
+    // Gift Banner
+    giftBanner,
 
     // Visual prefs
     visualFxEnabled,

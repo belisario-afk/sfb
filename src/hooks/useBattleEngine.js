@@ -22,6 +22,9 @@ const VOTE_STAGES = new Set(['vote1', 'vote2']);
 
 export default function useBattleEngine(spotifyClientId) {
   const [queue, setQueue] = useState([]);
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
+
   const [currentBattle, setCurrentBattle] = useState(null);
   const [spotifyPlayer, setSpotifyPlayer] = useState(null);
 
@@ -43,7 +46,7 @@ export default function useBattleEngine(spotifyClientId) {
     if (!track) return;
     if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
     setQueue(q => {
-      // Deduplicate by spotify track id if present
+      // Deduplicate by spotify track id or uri if present
       const exists = q.some(t => (t.id && track.id && t.id === track.id) || (t.uri && track.uri && t.uri === track.uri));
       if (exists) return q;
       return [...q, track];
@@ -54,10 +57,11 @@ export default function useBattleEngine(spotifyClientId) {
     setQueue(q => {
       const setIds = new Set(q.map(t => t.id || t.uri || ''));
       const add = [];
-      for (const t of tracks) {
+      for (const t0 of tracks) {
+        const t = { ...t0 };
+        if (!t.uri && t.id) t.uri = 'spotify:track:' + t.id;
         const id = t.id || (t.uri || '');
         if (!setIds.has(id)) {
-          if (!t.uri && t.id) t.uri = 'spotify:track:' + t.id;
           setIds.add(id);
           add.push(t);
         }
@@ -66,10 +70,40 @@ export default function useBattleEngine(spotifyClientId) {
     });
   }, []);
 
+  // Promote latest song in queue for a requester to the very front (index 0)
+  const promoteRequesterLatest = useCallback((user) => {
+    if (!user) return false;
+    const userId = user.id || user.userId || '';
+    const username = user.username || user.name || '';
+    let promoted = false;
+    setQueue(q => {
+      if (!q.length) return q;
+      // Find most recent index that matches requester
+      let idx = -1;
+      for (let i = q.length - 1; i >= 0; i--) {
+        const rb = q[i]?._requestedBy || {};
+        if (!rb) continue;
+        const idMatch = userId && rb.id && rb.id === userId;
+        const nameMatch = username && (rb.username === username || rb.name === username);
+        if (idMatch || nameMatch) { idx = i; break; }
+      }
+      if (idx <= 0) { // -1 not found or already at front
+        promoted = idx === 0;
+        return q;
+      }
+      const copy = q.slice();
+      const [track] = copy.splice(idx, 1);
+      copy.unshift(track);
+      promoted = true;
+      return copy;
+    });
+    return promoted;
+  }, []);
+
   /* ---------- Battle Initialization ---------- */
   const initBattle = useCallback(() => {
-    if (queue.length < 2) return null;
-    const [a, b, ...rest] = queue;
+    if (queueRef.current.length < 2) return null;
+    const [a, b, ...rest] = queueRef.current;
     setQueue(rest);
     const battle = {
       id: ++battleCounter,
@@ -90,11 +124,16 @@ export default function useBattleEngine(spotifyClientId) {
     };
     setCurrentBattle(battle);
     return battle;
-  }, [queue]);
+  }, []);
 
   const tryStartBattle = useCallback(() => {
+    // Only start if no running battle and at least two in queue
     if (currentBattle && currentBattle.stage !== 'finished') {
       console.warn(LOG, 'Battle in progress.');
+      return;
+    }
+    if (queueRef.current.length < 2) {
+      console.warn(LOG, 'Not enough tracks in queue to start next battle.');
       return;
     }
     const b = initBattle();
@@ -212,9 +251,11 @@ export default function useBattleEngine(spotifyClientId) {
         setVoteRemaining(0);
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.nextTimer = setTimeout(() => {
-            // only proceed if no newer stage overtook
-            if (thisVersion === stageVersionRef.current) {
+            if (thisVersion !== stageVersionRef.current) return;
+            if (queueRef.current.length >= 2) {
               tryStartBattle();
+            } else {
+              console.warn(LOG, 'Auto-start skipped: queue has fewer than 2 tracks.');
             }
           }, BATTLE_AUTOSTART_NEXT_DELAY);
         }
@@ -253,38 +294,35 @@ export default function useBattleEngine(spotifyClientId) {
 
       if (nextStage === 'victory_play') {
         if (!b.winner) {
-          // No winner: skip victory play
           setTimeout(() => {
             if (thisVersion === stageVersionRef.current) advanceStage();
           }, 50);
-          return { ...b, stage: 'victory_play', stageStartedAt: Date.now() };
-        }
-
-        const side = b.winner; // 'a' or 'b'
-        const track = b[side];
-        const durationTotal = Number(track?.duration_ms) || 180_000;
-        let offsetMs = VICTORY_PLAY_OFFSET_MS;
-        if (offsetMs >= durationTotal) {
-          offsetMs = Math.max(0, durationTotal - VICTORY_MIN_PLAY_MS);
-        }
-        const remainingMs = Math.max(VICTORY_MIN_PLAY_MS, durationTotal - offsetMs);
-
-        if (PLAYBACK_MODE === 'FULL') {
-          playSpotifySegment(track, offsetMs);
         } else {
-          const seconds = Math.min(10, Math.max(5, remainingMs / 1000));
-          if (track?.preview_url) {
-            playPreview('VICTORY', track.preview_url, seconds);
+          const side = b.winner; // 'a' or 'b'
+          const track = b[side];
+          const durationTotal = Number(track?.duration_ms) || 180_000;
+          let offsetMs = VICTORY_PLAY_OFFSET_MS;
+          if (offsetMs >= durationTotal) {
+            offsetMs = Math.max(0, durationTotal - VICTORY_MIN_PLAY_MS);
           }
+          const remainingMs = Math.max(VICTORY_MIN_PLAY_MS, durationTotal - offsetMs);
+
+          if (PLAYBACK_MODE === 'FULL') {
+            playSpotifySegment(track, offsetMs);
+          } else {
+            const seconds = Math.min(10, Math.max(5, remainingMs / 1000));
+            if (track?.preview_url) {
+              playPreview('VICTORY', track.preview_url, seconds);
+            }
+          }
+
+          if (timersRef.current.victoryTimer) clearTimeout(timersRef.current.victoryTimer);
+          timersRef.current.victoryTimer = setTimeout(() => {
+            if (thisVersion === stageVersionRef.current) {
+              advanceStage(); // -> finished
+            }
+          }, remainingMs);
         }
-
-        if (timersRef.current.victoryTimer) clearTimeout(timersRef.current.victoryTimer);
-        timersRef.current.victoryTimer = setTimeout(() => {
-          if (thisVersion === stageVersionRef.current) {
-            advanceStage(); // -> finished
-          }
-        }, remainingMs);
-
         return updated;
       }
 
@@ -320,7 +358,6 @@ export default function useBattleEngine(spotifyClientId) {
       timersRef.current.voteInterval = null;
     }
     timersRef.current.voteInterval = setInterval(() => {
-      // ignore if stage already changed
       if (version !== stageVersionRef.current) return;
       const remaining = voteEndsAt - Date.now();
       if (remaining <= 0) {
@@ -407,7 +444,6 @@ export default function useBattleEngine(spotifyClientId) {
     try {
       const res = await doPlay();
       if (!res.ok) {
-        // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
           const retryKey = track.id + ':' + offsetMs;
           if (playbackRetryRef.current.key !== retryKey) {
@@ -488,6 +524,7 @@ export default function useBattleEngine(spotifyClientId) {
     togglePause,
     spotifyPlayer,
     setSpotifyPlayer,
-    voteRemaining
+    voteRemaining,
+    promoteRequesterLatest // <-- exposed for mega gifts
   };
 }

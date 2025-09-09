@@ -6,6 +6,7 @@ import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
 import WinnerOverlay from './components/WinnerOverlay.jsx';
 import WinnerFocus from './components/WinnerFocus.jsx';
+import GiftBanner from './components/GiftBanner.jsx';
 import HypeMeter from './components/HypeMeter.jsx';
 import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
@@ -161,6 +162,7 @@ export default function App() {
             <VoteOverlay />
             <WinnerOverlay />
             <WinnerFocus />
+            <GiftBanner />
 
             {/* Requested-by badges overlay */}
             {battle && (requesterLeft || requesterRight) && (battle.stage?.startsWith?.('r') || battle.stage === 'winner') && (
