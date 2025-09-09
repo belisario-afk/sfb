@@ -18,7 +18,7 @@ import { ALLOW_NO_PREVIEW } from '../config/battleConfig.js';
 import { PLAYBACK_MODE } from '../config/playbackConfig.js';
 
 export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
-  const { authState, addTrack } = useAppContext();
+  const { authState, addTrack, beginSpotifyAuth } = useAppContext();
   const accessToken = authState?.accessToken;
 
   const [query, setQuery] = useState('');
@@ -136,7 +136,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
     try {
       await unlockAudioSystem();
       setPreviewingId(track.id);
-      playPreview('SEARCH-' + track.id.slice(0, 6), track.preview_url, 8);
+      playPreview('SEARCH-' + (track.id || '').slice(0, 6), track.preview_url, 8);
       setTimeout(() => {
         if (previewingId === track.id) setPreviewingId(null);
       }, 8500);
@@ -152,10 +152,12 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
     try {
       const consumer = typeof onSelect === 'function' ? onSelect : addTrack;
       if (typeof consumer === 'function') {
-        consumer(track);
+        await consumer(track);
       } else {
         console.warn('[SpotifyTrackSearchModal] No valid onSelect/addTrack.');
       }
+      // Close automatically after a successful add
+      onClose?.();
     } finally {
       setBusyAddId(null);
     }
@@ -229,8 +231,13 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
     return `${results.length} result${results.length === 1 ? '' : 's'}.`;
   }, [query, loading, fetchError, results]);
 
+  const handleBackdropMouseDown = (e) => {
+    // Click outside to close
+    if (e.target === e.currentTarget) onClose?.();
+  };
+
   return (
-    <div className="modal" onKeyDown={handleKeyDown}>
+    <div className="modal" onKeyDown={handleKeyDown} onMouseDown={handleBackdropMouseDown}>
       <div className="modal-panel" style={{
         width:'min(760px, 92vw)',
         maxHeight:'92vh',
@@ -243,8 +250,11 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
         </div>
 
         {!accessToken && (
-          <div style={{fontSize:'0.6rem', color:'#ff7b9b', marginBottom:'0.5rem'}}>
-            Not authenticated. Login in Settings to enable search.
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:'0.75rem', marginBottom:'0.5rem'}}>
+            <div style={{fontSize:'0.6rem', color:'#ff7b9b'}}>
+              Not authenticated. Log in to search and add tracks.
+            </div>
+            <button className="btn-primary" onClick={beginSpotifyAuth}>Login with Spotify</button>
           </div>
         )}
 
@@ -263,6 +273,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
             onChange={(e) => handleQueryChange(e.target.value)}
             style={{flex:1}}
             autoFocus
+            disabled={!accessToken}
           />
           {query && (
             <button
@@ -322,6 +333,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
                 key={r.id}
                 data-idx={idx}
                 onMouseEnter={() => setHighlightIndex(idx)}
+                onDoubleClick={() => { if (!addDisabled) handleAddTrack(r); }}
                 style={{
                   display:'flex',
                   alignItems:'center',
@@ -403,7 +415,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
                   <div style={{
                     fontSize:'0.45rem',
                     opacity: addDisabled ? 0.5 : 0.55,
-                    maxWidth:120,
+                    maxWidth:140,
                     textAlign:'right'
                   }}>
                     {hasPreview
@@ -421,7 +433,7 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
         </div>
 
         <div style={{marginTop:'0.55rem', display:'flex', justifyContent:'space-between', fontSize:'0.5rem', opacity:0.55}}>
-          <span>Enter to add. Esc to close. ↑/↓ to navigate.</span>
+          <span>Enter to add. Esc to close. ↑/↓ to navigate. Double-click a row to add.</span>
           <span>{isFullPlayback ? 'Mode: FULL' : 'Mode: PREVIEW'}</span>
         </div>
       </div>
