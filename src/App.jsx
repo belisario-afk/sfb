@@ -74,7 +74,6 @@ export default function App() {
     return s || 'Active';
   }, [battle]);
 
-  // Try to read the current left/right tracks to show "Requested by"
   function getBattleTracks(b) {
     if (!b) return { left: null, right: null };
     const candidates = [

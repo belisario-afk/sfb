@@ -79,7 +79,7 @@ export default function useBattleEngine(spotifyClientId) {
     }
     const b = initBattle();
     if (b) {
-      scheduleStage('r1A_play', b);
+      scheduleStage('r1A_play');
     }
   }, [currentBattle, initBattle]);
 
@@ -90,7 +90,10 @@ export default function useBattleEngine(spotifyClientId) {
     if (choice !== 'a' && choice !== 'b') return;
     setCurrentBattle(prev => {
       if (!prev) return prev;
-      if (!VOTE_STAGES.has(prev.stage)) return prev;
+      if (!VOTE_STAGES.has(prev.stage)) {
+        // Ignore votes outside the voting windows
+        return prev;
+      }
       const windowIndex = prev.stage === 'vote1' ? 0 : 1;
 
       if (VOTING_RULE === 'SINGLE_PER_BATTLE') {
@@ -136,40 +139,36 @@ export default function useBattleEngine(spotifyClientId) {
           stopAllPreviews();
         }
       } else {
-        scheduleStage(prev.stage, prev, true);
+        scheduleStage(prev.stage, true);
       }
       return { ...prev, paused };
     });
   }, [spotifyPlayer]);
 
   const forceNextStage = useCallback(() => {
-    setCurrentBattle(prev => {
-      if (!prev) return prev;
-      clearAllTimers();
-      advanceStage(prev);
-      return prev;
-    });
+    clearAllTimers();
+    // Advance using the most recent state (no snapshots)
+    advanceStage();
   }, []);
 
-  /* ---------- Stage Handling ---------- */
-  function advanceStage(snapshot) {
+  /* ---------- Stage Handling (no snapshots) ---------- */
+  function advanceStage() {
     setCurrentBattle(prev => {
-      const b = snapshot || prev;
-      if (!b) return prev;
+      if (!prev) return prev;
       let next;
-      switch (b.stage) {
+      switch (prev.stage) {
         case 'intro':     next = 'r1A_play'; break;
         case 'r1A_play':  next = 'r1B_play'; break;
         case 'r1B_play':  next = 'vote1'; break;
         case 'vote1':     next = 'r2A_play'; break;
         case 'r2A_play':  next = 'r2B_play'; break;
         case 'r2B_play':  next = 'vote2'; break;
-        case 'vote2':     next = 'winner'; break; // changed: show winner stage before finishing
+        case 'vote2':     next = 'winner'; break;
         case 'winner':    next = 'finished'; break;
         default:          next = 'finished';
       }
-      scheduleStage(next, b);
-      return b;
+      scheduleStage(next);
+      return prev;
     });
   }
 
@@ -179,31 +178,28 @@ export default function useBattleEngine(spotifyClientId) {
     return { a: aCount, b: bCount };
   }
 
-  function scheduleStage(nextStage, battleArg, _isRestart = false) {
+  function scheduleStage(nextStage, _isResume = false) {
     clearPlaybackTimers();
     setCurrentBattle(prev => {
-      const b = battleArg || prev;
+      const b = prev;
       if (!b) return prev;
       let updated = { ...b, stage: nextStage, stageStartedAt: Date.now() };
 
       if (nextStage === 'finished') {
-        // finished: cleanup and optionally schedule next battle
-        // Winner has already been computed in 'winner' stage
+        // Winner should have been computed in 'winner' stage
         console.log(LOG, 'Battle finished', updated.voteTotals, 'Winner:', updated.winner);
         setVoteRemaining(0);
-        // don't clear winnerTimer here; it is not used in finished
-        // Auto-start next battle after a delay
+        // Start next battle after delay (if configured)
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.nextTimer = setTimeout(() => {
             tryStartBattle();
           }, BATTLE_AUTOSTART_NEXT_DELAY);
         }
-        setCurrentBattle(updated);
         return updated;
       }
 
       if (nextStage === 'winner') {
-        // Pause any playback and compute final totals and winner
+        // Pause playback and compute final totals/winner from the latest state
         if (PLAYBACK_MODE === 'FULL') {
           try { spotifyPlayer?.pause?.(); } catch {}
         } else {
@@ -223,16 +219,14 @@ export default function useBattleEngine(spotifyClientId) {
         };
         setVoteRemaining(0);
 
-        // Show winner animation, then transition to finished
         if (timersRef.current.winnerTimer) {
           clearTimeout(timersRef.current.winnerTimer);
           timersRef.current.winnerTimer = null;
         }
         timersRef.current.winnerTimer = setTimeout(() => {
-          advanceStage(updated); // goes to 'finished'
+          advanceStage(); // goes to 'finished'
         }, WINNER_ANIMATION_MS);
 
-        setCurrentBattle(updated);
         return updated;
       }
 
@@ -242,7 +236,6 @@ export default function useBattleEngine(spotifyClientId) {
         startPlaybackStage(nextStage, updated);
       }
 
-      setCurrentBattle(updated);
       return updated;
     });
   }
@@ -274,7 +267,7 @@ export default function useBattleEngine(spotifyClientId) {
         setVoteRemaining(0);
         clearInterval(timersRef.current.voteInterval);
         timersRef.current.voteInterval = null;
-        setTimeout(() => advanceStage(updated), 120);
+        setTimeout(() => advanceStage(), 120);
       } else {
         playTick();
         setVoteRemaining(remaining);
@@ -296,7 +289,7 @@ export default function useBattleEngine(spotifyClientId) {
     } else {
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
-    scheduleSegmentEnd(segment, battle);
+    scheduleSegmentEnd(segment);
   }
 
   function resolveSegment(stage) {
@@ -309,17 +302,17 @@ export default function useBattleEngine(spotifyClientId) {
     }
   }
 
-  function scheduleSegmentEnd(segment, battle) {
+  function scheduleSegmentEnd(segment) {
     const target = performance.now() + segment.durationMs;
-    pendingStageRef.current = { stage: battle.stage, end: target };
+    pendingStageRef.current = { stage: segment, end: target };
     const early = Math.max(0, segment.durationMs - TRANSITION_BUFFER);
     timersRef.current.main = setTimeout(() => {
       const spin = () => {
         if (performance.now() >= target - 5) {
           if (STAGE_GAP_MS > 0) {
-            setTimeout(() => advanceStage(battle), STAGE_GAP_MS);
+            setTimeout(() => advanceStage(), STAGE_GAP_MS);
           } else {
-            advanceStage(battle);
+            advanceStage();
           }
         } else {
           timersRef.current.raf = requestAnimationFrame(spin);
@@ -356,7 +349,7 @@ export default function useBattleEngine(spotifyClientId) {
         // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
           const retryKey = track.id + ':' + offsetMs;
-            if (playbackRetryRef.current.key !== retryKey) {
+          if (playbackRetryRef.current.key !== retryKey) {
             playbackRetryRef.current.key = retryKey;
             console.warn(LOG, 'Playback 404/403, attempting device transfer & retry...');
             await transferToDevice(token, deviceId);

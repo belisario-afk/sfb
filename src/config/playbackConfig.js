@@ -20,7 +20,7 @@ export const BATTLE_AUTOSTART_NEXT_DELAY = 3000;
 // Voting behavior
 // 'PER_WINDOW' => user can vote once in vote1 and once in vote2 (max 2 votes)
 // 'SINGLE_PER_BATTLE' => user can only vote once across the entire battle
-export const VOTING_RULE = 'PER_WINDOW';
+export const VOTING_RULE = 'SINGLE_PER_BATTLE';
 
 // Allow a small pause concept if needed (not used during vote windows which already pause)
 export const ENFORCE_SEGMENT_PAUSE = true;
