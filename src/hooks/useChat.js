@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 // Normalize user identity from various payload shapes
 function normalizeUser(u = {}) {
   const top = u || {};
-  // Some relays send user under "user" or "userInfo"
+  // Many relays send user under "user" or "userInfo"
   const base = top.user || top.userInfo || top;
 
   const userId =
@@ -35,13 +35,13 @@ function normalizeUser(u = {}) {
     base.avatarThumbUrl ||
     base.avatarThumb ||
     (base.avatar && (base.avatar.thumbUrl || base.avatar.thumb_url)) ||
-    top.avatarUrl || // fallback to top-level in case relay already flattened
+    top.avatarUrl || // fallback if already flattened
     '';
 
   return { userId, username, displayName, avatarUrl };
 }
 
-// Extract a human chat text from various fields
+// Extract a chat text from various fields
 function normalizeText(d = {}) {
   return (
     d.text ||
@@ -88,7 +88,6 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
 
         ws.onopen = () => {
           setStatus('connected');
-          // Send subscribe (your relay expects this)
           if (tiktokUsername) {
             try {
               ws.send(JSON.stringify({ type: 'subscribe', platform: 'tiktok', room: tiktokUsername }));
@@ -133,7 +132,7 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
             return;
           }
 
-          // Normalize gift messages and forward identity for mega/hype logic
+          // Normalize gift messages and forward identity (used by hype/mega gifts)
           const isGift =
             data?.type === 'gift' ||
             data?.event === 'gift' ||
@@ -146,7 +145,7 @@ export default function useChat({ mode = 'simulation', relayUrl, tiktokUsername 
               type: 'gift',
               platform: data.platform || 'tiktok',
               ...u,
-              // Pass through useful raw fields; AppContext has its own parsers
+              // Pass through useful raw fields; AppContext has parsers for value/name/repeatEnd
               giftName: data.giftName || data?.gift?.name || data?.giftDetails?.name || '',
               value: data.value || data.coins || data.diamondCount || 0,
               repeatEnd: data.repeatEnd ?? data.isRepeatEnd ?? true,

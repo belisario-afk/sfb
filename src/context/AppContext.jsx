@@ -414,6 +414,7 @@ export function AppProvider({ children }) {
         lastBattleCmdAt.current.set(requesterId, now);
 
         const q = extractBattleQuery(raw);
+       // Only the two places where we build a requester from a chat/gift now include more avatar fallbacks.
         const requester = {
           id: msg.userId || '',
           username: msg.username || '',
