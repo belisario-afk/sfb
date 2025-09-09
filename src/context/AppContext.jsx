@@ -333,11 +333,9 @@ export function AppProvider({ children }) {
     const isMoneyGun = giftName.includes('money gun') || giftName.includes('moneygun');
     const isMega = coins >= 500 || isMoneyGun;
 
-    // Medium/Small hype effects
     const isMedium = coins >= 20 && coins <= 99;
     const isSmall = coins > 0 && coins < 20;
 
-    // If mega, promote requester's queued song
     if (isMega) {
       const requester = {
         id: msg.userId || '',
@@ -360,7 +358,6 @@ export function AppProvider({ children }) {
       return;
     }
 
-    // Small/Medium: affect hype and pulses
     if (isSmall || isMedium) {
       let side = resolveGiftSideFromVote(msg);
       if (!side) {
@@ -379,7 +376,7 @@ export function AppProvider({ children }) {
     }
   }
 
-  /* ---------- Chat commands from TikTok relay ---------- */
+  /* ---------- Chat commands from Relay ---------- */
   const recentAddsRef = useRef(new Map()); // trackId -> ts
   const PER_USER_BATTLE_COOLDOWN_MS = 5000;
   const lastBattleCmdAt = useRef(new Map()); // userId -> ts
@@ -552,6 +549,10 @@ export function AppProvider({ children }) {
 
     // Gift Banner
     giftBanner,
+
+    // UI / modal
+    modalOpen,
+    setModalOpen,
 
     // Visual prefs
     visualFxEnabled,

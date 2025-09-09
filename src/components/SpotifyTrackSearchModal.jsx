@@ -156,7 +156,6 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
       } else {
         console.warn('[SpotifyTrackSearchModal] No valid onSelect/addTrack.');
       }
-      // Close automatically after a successful add
       onClose?.();
     } finally {
       setBusyAddId(null);
@@ -232,7 +231,6 @@ export default function SpotifyTrackSearchModal({ onClose, onSelect }) {
   }, [query, loading, fetchError, results]);
 
   const handleBackdropMouseDown = (e) => {
-    // Click outside to close
     if (e.target === e.currentTarget) onClose?.();
   };
 

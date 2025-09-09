@@ -46,7 +46,6 @@ export default function useBattleEngine(spotifyClientId) {
     if (!track) return;
     if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
     setQueue(q => {
-      // Deduplicate by spotify track id or uri if present
       const exists = q.some(t => (t.id && track.id && t.id === track.id) || (t.uri && track.uri && t.uri === track.uri));
       if (exists) return q;
       return [...q, track];
@@ -126,7 +125,6 @@ export default function useBattleEngine(spotifyClientId) {
   }, []);
 
   const tryStartBattle = useCallback(() => {
-    // Only start if no running battle and at least two in queue
     if (currentBattle && currentBattle.stage !== 'finished') {
       console.warn(LOG, 'Battle in progress.');
       return;
@@ -148,9 +146,7 @@ export default function useBattleEngine(spotifyClientId) {
     if (choice !== 'a' && choice !== 'b') return;
     setCurrentBattle(prev => {
       if (!prev) return prev;
-      if (!VOTE_STAGES.has(prev.stage)) {
-        return prev;
-      }
+      if (!VOTE_STAGES.has(prev.stage)) return prev;
       const windowIndex = prev.stage === 'vote1' ? 0 : 1;
 
       if (VOTING_RULE === 'SINGLE_PER_BATTLE') {
@@ -236,12 +232,11 @@ export default function useBattleEngine(spotifyClientId) {
   }
 
   function scheduleStage(nextStage, _isResume = false) {
-    // bump stage version and clear timers to invalidate older callbacks
     stageVersionRef.current += 1;
     const thisVersion = stageVersionRef.current;
     clearPlaybackTimers();
 
-    // Always stop any preview audio before changing segments to avoid overlap/repeats
+    // Stop any preview before starting a new segment to prevent overlap/repeats
     if (PLAYBACK_MODE !== 'FULL') {
       stopAllPreviews();
     }
@@ -391,7 +386,6 @@ export default function useBattleEngine(spotifyClientId) {
     if (PLAYBACK_MODE === 'FULL') {
       playSpotifySegment(track, segment.offsetMs);
     } else {
-      // Ensure any previous preview is stopped before starting a new one
       stopAllPreviews();
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
@@ -451,9 +445,8 @@ export default function useBattleEngine(spotifyClientId) {
     try {
       const res = await doPlay();
       if (!res.ok) {
-        // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
-          const retryKey = track.id + ':' + offsetMs;
+          const retryKey = (track.id || track.uri) + ':' + offsetMs;
           if (playbackRetryRef.current.key !== retryKey) {
             playbackRetryRef.current.key = retryKey;
             console.warn(LOG, 'Playback 404/403, attempting device transfer & retry...');
@@ -533,6 +526,6 @@ export default function useBattleEngine(spotifyClientId) {
     spotifyPlayer,
     setSpotifyPlayer,
     voteRemaining,
-    promoteRequesterLatest // still exposed for mega gifts
+    promoteRequesterLatest
   };
 }
