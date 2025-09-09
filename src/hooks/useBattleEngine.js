@@ -169,7 +169,7 @@ export default function useBattleEngine(spotifyClientId) {
       else newWindows[windowIndex].b.add(userId);
 
       const totalA = newWindows[0].a.size + newWindows[1].a.size;
-      const totalB = newWindows[0].b.size + newWindows[1].b.size;
+      const totalB = newWindows[0].b.b.size + newWindows[1].b.size;
 
       return {
         ...prev,
@@ -186,8 +186,10 @@ export default function useBattleEngine(spotifyClientId) {
       const paused = !prev.paused;
       if (paused) {
         clearAllTimers();
+        // Pause everywhere
         if (PLAYBACK_MODE === 'FULL') {
-          try { spotifyPlayer?.pause(); } catch {}
+          try { spotifyPlayer?.pause?.(); } catch {}
+          pauseSpotifyPlayback(); // Web API pause
         } else {
           stopAllPreviews();
         }
@@ -202,6 +204,27 @@ export default function useBattleEngine(spotifyClientId) {
     clearAllTimers();
     advanceStage();
   }, []);
+
+  /* ---------- Helpers: Spotify Web API pause ---------- */
+  function getStoredAccessToken() {
+    try {
+      const raw = localStorage.getItem('spotifyTokens');
+      if (!raw) return null;
+      return JSON.parse(raw).accessToken || null;
+    } catch { return null; }
+  }
+  async function pauseSpotifyPlayback() {
+    const token = getStoredAccessToken();
+    if (!token) return;
+    try {
+      await fetch('https://api.spotify.com/v1/me/player/pause', {
+        method: 'PUT',
+        headers: { Authorization: 'Bearer ' + token }
+      });
+    } catch (e) {
+      console.warn(LOG, 'Pause API error', e);
+    }
+  }
 
   /* ---------- Stage Handling with Version Guard ---------- */
   function advanceStage() {
@@ -265,6 +288,7 @@ export default function useBattleEngine(spotifyClientId) {
       if (nextStage === 'winner') {
         if (PLAYBACK_MODE === 'FULL') {
           try { spotifyPlayer?.pause?.(); } catch {}
+          pauseSpotifyPlayback();
         } else {
           stopAllPreviews();
         }
@@ -345,6 +369,7 @@ export default function useBattleEngine(spotifyClientId) {
   function enterVoteStage(battle, stage, version) {
     if (PLAYBACK_MODE === 'FULL') {
       try { spotifyPlayer?.pause?.(); } catch {}
+      pauseSpotifyPlayback();
     } else {
       stopAllPreviews();
     }
