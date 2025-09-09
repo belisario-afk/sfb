@@ -79,6 +79,9 @@ export function AppProvider({ children }) {
     })()
   );
 
+  // Modal state (expose to App.jsx)
+  const [modalOpen, setModalOpen] = useState(false);
+
   // Hype, Gifts, MVP, Golden Hour
   const [hype, setHype] = useState(0); // 0..1
   const [goldenHourUntil, setGoldenHourUntil] = useState(0);
@@ -273,7 +276,7 @@ export function AppProvider({ children }) {
   }, []);
 
   const bumpHype = useCallback((coins) => {
-    setHype(h => Math.min(1, h + Math.max(0.02, coins / 300))); // quick, obvious bump
+    setHype(h => Math.min(1, h + Math.max(0.02, coins / 300)));
   }, []);
 
   const handleGift = useCallback((msg) => {
@@ -440,6 +443,10 @@ export function AppProvider({ children }) {
       hasStreamingScope: hasStreamingScopes
     },
     voteRemaining,
+
+    // Modal state for App.jsx
+    modalOpen,
+    setModalOpen,
 
     // Visual prefs
     visualFxEnabled,
