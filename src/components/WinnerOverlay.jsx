@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 
 export default function WinnerOverlay() {
-  const { battle, mvpMap } = useAppContext() || {};
+  const { battle } = useAppContext() || {};
   if (!battle || battle.stage !== 'winner') return null;
 
   const winnerSide = battle.winner; // 'a' | 'b' | null (tie)
@@ -20,17 +20,6 @@ export default function WinnerOverlay() {
     winTrack?.album?.images?.[1]?.url ||
     winTrack?.album?.images?.[0]?.url ||
     '';
-
-  const mvp = useMemo(() => {
-    if (!mvpMap || typeof mvpMap.forEach !== 'function') return null;
-    let topUser = null;
-    let topScore = -1;
-    mvpMap.forEach((score, userId) => {
-      if (score > topScore) { topScore = score; topUser = userId; }
-    });
-    if (!topUser) return null;
-    return { userId: topUser, points: topScore };
-  }, [mvpMap]);
 
   return (
     <div style={styles.container}>
@@ -52,9 +41,6 @@ export default function WinnerOverlay() {
         )}
         {isTie && (
           <div style={styles.tieNote}>No winner this round</div>
-        )}
-        {mvp && (
-          <div style={styles.mvp}>MVP of the Match: {String(mvp.userId)} (+{mvp.points})</div>
         )}
       </div>
     </div>
@@ -116,15 +102,10 @@ const styles = {
   tieNote: {
     fontSize: '14px',
     opacity: 0.95
-  },
-  mvp: {
-    fontSize: '13px',
-    marginTop: '10px',
-    color: '#ffe66d'
   }
 };
 
-// Inject keyframes once
+// Inject a minimal keyframe for the pop animation
 const styleElId = 'winner-overlay-style';
 if (typeof document !== 'undefined' && !document.getElementById(styleElId)) {
   const el = document.createElement('style');

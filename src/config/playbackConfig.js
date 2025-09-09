@@ -1,4 +1,4 @@
-// Playback configuration and interactive battle settings
+// Updated playback configuration to support two 20s rounds with two voting windows.
 
 export const PLAYBACK_MODE = (import.meta.env.VITE_PLAYBACK_MODE || 'FULL').toUpperCase();
 
@@ -9,20 +9,6 @@ export const VOTE_WINDOW_MS   = 10_000;  // Voting window duration
 
 // Winner animation duration (ms) after final tally before finishing
 export const WINNER_ANIMATION_MS = 3000;
-
-// Overtime configuration
-export const OVERTIME_MS = 8_000;                // Sudden-death extra voting window
-export const OVERTIME_GIFT_THRESHOLD = 100;      // Coins to request Overtime
-export const OVERTIME_ON_NEAR_TIE_ONLY = true;   // Only allow if margin <= 1
-
-// Golden Hour (visuals buff)
-export const GOLDEN_HOUR_MS = 60_000;            // Duration added per trigger
-export const GOLDEN_HOUR_THRESHOLD = 500;        // Coins to trigger Golden Hour
-export const GOLDEN_HOUR_COOLDOWN_MS = 5 * 60_000;
-
-// Gifts -> time extension
-export const GIFT_TIME_PER_COIN_MS = 500;        // Each coin extends vote window by this many ms
-export const VOTE_EXTENSION_CAP_MS = 15_000;     // Max extra time per vote window from gifts
 
 // Scheduling
 export const TRANSITION_BUFFER = 180;   // ms early scheduling for playback transitions
@@ -42,10 +28,3 @@ export const ENFORCE_SEGMENT_PAUSE = true;
 export function isFullPlayback() {
   return PLAYBACK_MODE === 'FULL';
 }
-
-// Visual palette for sides
-export const SIDE_COLORS = {
-  a: 0xff2d95, // Neon Magenta
-  b: 0x00e7ff, // Cyber Cyan
-  neutral: 0x9efcff
-};
