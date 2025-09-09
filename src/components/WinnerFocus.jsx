@@ -4,9 +4,8 @@ import { useAppContext } from '../context/AppContext.jsx';
 /**
  * WinnerFocus: Big celebratory focus during 'victory_play'
  * - Large album art
- * - Requester avatar with crown
+ * - Requester avatar with crown (robust fallbacks for avatar fields)
  * - Pulsing glow ring + animated equalizer bars
- * - Soft confetti shimmer background
  */
 export default function WinnerFocus() {
   const { battle } = useAppContext() || {};
@@ -24,27 +23,24 @@ export default function WinnerFocus() {
     winTrack?.album?.images?.[2]?.url ||
     '';
 
+  const rb = winTrack?._requestedBy || {};
   const requester =
-    winTrack?._requestedBy?.name ||
-    winTrack?._requestedBy?.username ||
+    rb.name ||
+    rb.username ||
     '';
 
   const avatar =
-    winTrack?._requestedBy?.avatar ||
-    winTrack?._requestedBy?.image ||
+    rb.avatar ||
+    rb.avatarUrl ||
+    rb.profilePictureUrl ||
+    rb.image ||
     '';
 
   const sideColor = winSide === 'a' ? '#00E7FF' : '#FF2D95';
-  const sideGrad =
-    winSide === 'a'
-      ? 'linear-gradient(135deg, #00E7FF 0%, #00FFA3 100%)'
-      : 'linear-gradient(135deg, #FF2D95 0%, #A100FF 100%)';
 
   return (
     <div style={styles.container}>
-      {/* shimmer confetti background */}
-      <div style={styles.confettiLayer} />
-      <div style={{ ...styles.card, borderImage: sideGrad + ' 1' }}>
+      <div style={{ ...styles.card, boxShadow: `0 10px 44px ${sideColor}40` }}>
         <div style={{ ...styles.ring, boxShadow: `0 0 40px ${sideColor}80` }}>
           {art && <img src={art} alt="" style={styles.art} />}
           <div style={{ ...styles.ringPulse, borderColor: sideColor }} />
@@ -98,12 +94,6 @@ const styles = {
     pointerEvents: 'none',
     zIndex: 14
   },
-  confettiLayer: {
-    position: 'absolute',
-    inset: 0,
-    background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.06), rgba(0,0,0,0) 60%), repeating-linear-gradient(60deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 8px)',
-    filter: 'blur(0.2px)'
-  },
   card: {
     background: 'rgba(0,0,0,0.55)',
     color: '#fff',
@@ -112,9 +102,7 @@ const styles = {
     minWidth: '340px',
     maxWidth: '88vw',
     textAlign: 'center',
-    boxShadow: '0 10px 44px rgba(0,0,0,0.5)',
     backdropFilter: 'blur(10px)',
-    border: '2px solid transparent',
     animation: 'focusPop 420ms ease-out'
   },
   ring: {

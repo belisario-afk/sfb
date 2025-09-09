@@ -82,7 +82,6 @@ export default function useBattleEngine(spotifyClientId) {
       let idx = -1;
       for (let i = q.length - 1; i >= 0; i--) {
         const rb = q[i]?._requestedBy || {};
-        if (!rb) continue;
         const idMatch = userId && rb.id && rb.id === userId;
         const nameMatch = username && (rb.username === username || rb.name === username);
         if (idMatch || nameMatch) { idx = i; break; }
@@ -241,6 +240,12 @@ export default function useBattleEngine(spotifyClientId) {
     stageVersionRef.current += 1;
     const thisVersion = stageVersionRef.current;
     clearPlaybackTimers();
+
+    // Always stop any preview audio before changing segments to avoid overlap/repeats
+    if (PLAYBACK_MODE !== 'FULL') {
+      stopAllPreviews();
+    }
+
     setCurrentBattle(prev => {
       const b = prev;
       if (!b) return prev;
@@ -386,6 +391,8 @@ export default function useBattleEngine(spotifyClientId) {
     if (PLAYBACK_MODE === 'FULL') {
       playSpotifySegment(track, segment.offsetMs);
     } else {
+      // Ensure any previous preview is stopped before starting a new one
+      stopAllPreviews();
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
     scheduleSegmentEnd(segment.durationMs, version);
@@ -393,8 +400,8 @@ export default function useBattleEngine(spotifyClientId) {
 
   function resolveSegment(stage) {
     switch (stage) {
-      case 'r1A_play': return { side: 'a', offsetMs: 0, durationMs: ROUND1_SEGMENT_MS };
-      case 'r1B_play': return { side: 'b', offsetMs: 0, durationMs: ROUND1_SEGMENT_MS };
+      case 'r1A_play': return { side: 'a', offsetMs: 0,                 durationMs: ROUND1_SEGMENT_MS };
+      case 'r1B_play': return { side: 'b', offsetMs: 0,                 durationMs: ROUND1_SEGMENT_MS };
       case 'r2A_play': return { side: 'a', offsetMs: ROUND1_SEGMENT_MS, durationMs: ROUND2_SEGMENT_MS };
       case 'r2B_play': return { side: 'b', offsetMs: ROUND1_SEGMENT_MS, durationMs: ROUND2_SEGMENT_MS };
       default: return null;
@@ -444,6 +451,7 @@ export default function useBattleEngine(spotifyClientId) {
     try {
       const res = await doPlay();
       if (!res.ok) {
+        // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
           const retryKey = track.id + ':' + offsetMs;
           if (playbackRetryRef.current.key !== retryKey) {
@@ -525,6 +533,6 @@ export default function useBattleEngine(spotifyClientId) {
     spotifyPlayer,
     setSpotifyPlayer,
     voteRemaining,
-    promoteRequesterLatest // <-- exposed for mega gifts
+    promoteRequesterLatest // still exposed for mega gifts
   };
 }

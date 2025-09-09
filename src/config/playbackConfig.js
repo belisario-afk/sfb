@@ -1,11 +1,11 @@
-// Updated playback configuration to support two 20s rounds with two voting windows.
+// Updated playback configuration to support strict 20s segments and 20s vote windows.
 
 export const PLAYBACK_MODE = (import.meta.env.VITE_PLAYBACK_MODE || 'FULL').toUpperCase();
 
 // Segment durations (ms)
-export const ROUND1_SEGMENT_MS = 20_000; // Each track first pass
-export const ROUND2_SEGMENT_MS = 20_000; // Each track second pass (continuation)
-export const VOTE_WINDOW_MS   = 10_000;  // Voting window duration
+export const ROUND1_SEGMENT_MS = 20_000; // A: 0-20s, B: 0-20s
+export const ROUND2_SEGMENT_MS = 20_000; // A: 20-40s, B: 20-40s
+export const VOTE_WINDOW_MS   = 20_000;  // Each vote window is 20s
 
 // Winner animation duration (ms) after final tally before finishing
 export const WINNER_ANIMATION_MS = 2500;

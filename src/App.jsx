@@ -1,8 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { useAppContext } from './context/AppContext.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
-// Safe import pattern in case ChatTicker is a named export
-import ChatTickerDefault, * as ChatTickerModule from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
 import WinnerOverlay from './components/WinnerOverlay.jsx';
@@ -13,7 +11,12 @@ import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
 import ParticleField from './components/FX/ParticleField.jsx';
 
-const ChatTicker = ChatTickerDefault || ChatTickerModule.ChatTicker || null;
+// Robust lazy import: supports default export OR named export { ChatTicker }
+const ChatTicker = lazy(() =>
+  import('./components/ChatTicker.jsx').then((mod) => ({
+    default: mod.default || mod.ChatTicker || (() => null)
+  }))
+);
 
 export default function App() {
   const ctx = useAppContext();
@@ -101,8 +104,14 @@ export default function App() {
   }
   const { left: leftTrack, right: rightTrack } = getBattleTracks(battle);
 
-  const requesterLeft = leftTrack?._requestedBy?.name || leftTrack?._requestedBy?.username || '';
-  const requesterRight = rightTrack?._requestedBy?.name || rightTrack?._requestedBy?.username || '';
+  const rbLeft = leftTrack?._requestedBy || {};
+  const rbRight = rightTrack?._requestedBy || {};
+  const requesterLeft = rbLeft.name || rbLeft.username || '';
+  const requesterRight = rbRight.name || rbRight.username || '';
+  const avatarLeft =
+    rbLeft.avatar || rbLeft.avatarUrl || rbLeft.profilePictureUrl || rbLeft.image || '';
+  const avatarRight =
+    rbRight.avatar || rbRight.avatarUrl || rbRight.profilePictureUrl || rbRight.image || '';
 
   const pulseA = (hypePulse?.a || 0) % 2 === 1;
   const pulseB = (hypePulse?.b || 0) % 2 === 1;
@@ -169,7 +178,7 @@ export default function App() {
             <WinnerFocus />
             <GiftBanner />
 
-            {/* Requested-by badges overlay */}
+            {/* Requested-by badges overlay with avatars */}
             {battle && (requesterLeft || requesterRight) && (battle.stage?.startsWith?.('r') || battle.stage === 'winner') && (
               <div style={{
                 position: 'absolute',
@@ -183,28 +192,32 @@ export default function App() {
                 zIndex: 5
               }}>
                 <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
                   background: 'rgba(0,0,0,0.45)',
                   color: '#fff',
                   borderRadius: '999px',
                   padding: '6px 10px',
                   fontSize: '12px',
-                  minWidth: '120px',
+                  minWidth: '160px',
                   textAlign: 'left',
                   backdropFilter: 'blur(6px)'
                 }}>
-                  {requesterLeft ? `Requested by ${requesterLeft}` : ''}
+                  {avatarLeft && <img alt="" src={avatarLeft} style={{ width: 20, height: 20, borderRadius: '50%' }} />}
+                  <span>{requesterLeft ? `Requested by ${requesterLeft}` : ''}</span>
                 </div>
                 <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
                   background: 'rgba(0,0,0,0.45)',
                   color: '#fff',
                   borderRadius: '999px',
                   padding: '6px 10px',
                   fontSize: '12px',
-                  minWidth: '120px',
+                  minWidth: '160px',
                   textAlign: 'right',
                   backdropFilter: 'blur(6px)'
                 }}>
-                  {requesterRight ? `Requested by ${requesterRight}` : ''}
+                  <span>{requesterRight ? `Requested by ${requesterRight}` : ''}</span>
+                  {avatarRight && <img alt="" src={avatarRight} style={{ width: 20, height: 20, borderRadius: '50%' }} />}
                 </div>
               </div>
             )}
@@ -215,7 +228,7 @@ export default function App() {
                   <span className="label">A</span>
                   <span
                     className="value"
-                    style={pulseA ? { textShadow: '0 0 12px rgba(0,231,255,0.9)' } : null}
+                    style={(hypePulse?.a || 0) % 2 === 1 ? { textShadow: '0 0 12px rgba(0,231,255,0.9)' } : null}
                   >
                     {String(votesA).padStart(2, '0')}
                   </span>
@@ -225,7 +238,7 @@ export default function App() {
                   <span className="label">B</span>
                   <span
                     className="value"
-                    style={pulseB ? { textShadow: '0 0 12px rgba(255,45,149,0.9)' } : null}
+                    style={(hypePulse?.b || 0) % 2 === 1 ? { textShadow: '0 0 12px rgba(255,45,149,0.9)' } : null}
                   >
                     {String(votesB).padStart(2, '0')}
                   </span>
@@ -269,7 +282,9 @@ export default function App() {
             <div className="chat-header">Chat</div>
             <div className="chat-body">
               <div className="chat-scroll" ref={chatScrollRef} style={{ maxHeight: '62vh', overflowY: 'auto' }}>
-                {ChatTicker ? <ChatTicker limit={80} /> : null}
+                <Suspense fallback={null}>
+                  <ChatTicker limit={80} />
+                </Suspense>
               </div>
             </div>
             <div className="chat-footer" style={{ fontSize: 14 }}>
@@ -309,7 +324,10 @@ function QueueView({ queue }) {
       </div>
       {queue.map((t, i) => {
         const img = t.album?.images?.[2]?.url || t.album?.images?.[0]?.url;
-        const requestedBy = t._requestedBy?.name || t._requestedBy?.username || '';
+        const rb = t._requestedBy || {};
+        const requestedBy = rb.name || rb.username || '';
+        const avatar =
+          rb.avatar || rb.avatarUrl || rb.profilePictureUrl || rb.image || '';
         return (
           <div key={t.id || i} className="queue-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 6px' }}>
             <div className="queue-art" style={{ width: 54, height: 54, borderRadius: 8, overflow: 'hidden', flex: '0 0 auto' }}>
@@ -323,8 +341,9 @@ function QueueView({ queue }) {
                 {(t.artists || []).map(a => a.name).join(', ')}
               </div>
               {requestedBy && (
-                <div className="queue-requester" style={{ fontSize: 12, opacity: 0.9 }}>
-                  Requested by {requestedBy}
+                <div className="queue-requester" style={{ fontSize: 12, opacity: 0.9, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {avatar && <img alt="" src={avatar} style={{ width: 16, height: 16, borderRadius: '50%' }} />}
+                  <span>Requested by {requestedBy}</span>
                 </div>
               )}
             </div>
