@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAppContext } from './context/AppContext.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import ChatTicker from './components/ChatTicker.jsx';
@@ -103,6 +103,16 @@ export default function App() {
   const pulseA = (hypePulse?.a || 0) % 2 === 1;
   const pulseB = (hypePulse?.b || 0) % 2 === 1;
 
+  // Chat auto-scroll
+  const chatScrollRef = useRef(null);
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
+    const id = setInterval(scrollToBottom, 800);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <div className="app-root">
       {visualFxEnabled && !reducedMotion && (
@@ -143,7 +153,10 @@ export default function App() {
             </div>
           </div>
 
-          <div className="arena-wrapper" style={{ position: 'relative' }}>
+          {/* Larger, centered queue */}
+          <QueueView queue={queue} />
+
+          <div className="arena-wrapper" style={{ position: 'relative', marginTop: 12 }}>
             <NeoArena />
             <VoteOverlay />
             <WinnerOverlay />
@@ -235,8 +248,6 @@ export default function App() {
             </div>
           )}
 
-          <QueueView queue={queue} />
-
           <div className="player-status">
             Player: {spotifyPlayer?.status}
             {spotifyPlayer?.deviceId && ` (Device ${spotifyPlayer.deviceId.slice(0, 8)}...)`}
@@ -247,14 +258,14 @@ export default function App() {
 
         {/* Right Column */}
         <div className="layout-right">
-          <div className="chat-panel glass-surface">
+          <div className="chat-panel glass-surface" style={{ fontSize: 16 }}>
             <div className="chat-header">Chat</div>
             <div className="chat-body">
-              <div className="chat-scroll">
-                <ChatTicker limit={60} />
+              <div className="chat-scroll" ref={chatScrollRef} style={{ maxHeight: '62vh', overflowY: 'auto' }}>
+                <ChatTicker limit={80} />
               </div>
             </div>
-            <div className="chat-footer">
+            <div className="chat-footer" style={{ fontSize: 14 }}>
               Commands: !battle Song Name Artist | !vote A/B
             </div>
           </div>
@@ -275,36 +286,42 @@ export default function App() {
   );
 }
 
-/* Queue View */
+/* Queue View - centered and larger */
 function QueueView({ queue }) {
   if (!queue?.length) {
     return (
-      <div className="queue-empty glass-soft">
+      <div className="queue-empty glass-soft" style={{ maxWidth: 900, margin: '8px auto' }}>
         Queue empty (use !battle Song Name Artist or Search).
       </div>
     );
   }
   return (
-    <div className="queue-list-neo glass-soft">
-      <div className="queue-title">Queue ({queue.length})</div>
+    <div className="queue-list-neo glass-soft" style={{ maxWidth: 900, margin: '8px auto', padding: '10px 14px', borderRadius: 14 }}>
+      <div className="queue-title" style={{ fontWeight: 800, letterSpacing: 0.5, marginBottom: 8 }}>
+        Queue ({queue.length})
+      </div>
       {queue.map((t, i) => {
         const img = t.album?.images?.[2]?.url || t.album?.images?.[0]?.url;
         const requestedBy = t._requestedBy?.name || t._requestedBy?.username || '';
         return (
-          <div key={t.id || i} className="queue-row">
-            <div className="queue-art">
-              {img && <img src={img} alt="" />}
+          <div key={t.id || i} className="queue-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 6px' }}>
+            <div className="queue-art" style={{ width: 54, height: 54, borderRadius: 8, overflow: 'hidden', flex: '0 0 auto' }}>
+              {img && <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
             </div>
-            <div className="queue-meta">
-              <div className="queue-name" title={t.name}>{t.name}</div>
-              <div className="queue-artists">
+            <div className="queue-meta" style={{ flex: 1, minWidth: 0 }}>
+              <div className="queue-name" title={t.name} style={{ fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {t.name}
+              </div>
+              <div className="queue-artists" style={{ fontSize: 13, opacity: 0.9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {(t.artists || []).map(a => a.name).join(', ')}
               </div>
               {requestedBy && (
-                <div className="queue-requester">Requested by {requestedBy}</div>
+                <div className="queue-requester" style={{ fontSize: 12, opacity: 0.9 }}>
+                  Requested by {requestedBy}
+                </div>
               )}
             </div>
-            {t._noPreview && <span className="queue-badge">no preview</span>}
+            {t._noPreview && <span className="queue-badge" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.1)' }}>no preview</span>}
           </div>
         );
       })}
