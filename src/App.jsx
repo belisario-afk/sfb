@@ -5,6 +5,7 @@ import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
 import WinnerOverlay from './components/WinnerOverlay.jsx';
+import GiftBadges from './components/GiftBadges.jsx';
 import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
 import ParticleField from './components/FX/ParticleField.jsx';
@@ -52,8 +53,6 @@ export default function App() {
   const startBattle = useCallback(() => {
     if (typeof tryStartBattle === 'function') {
       tryStartBattle();
-    } else {
-      console.warn('[App] tryStartBattle not available');
     }
   }, [tryStartBattle]);
 
@@ -69,6 +68,7 @@ export default function App() {
     if (s === 'finished') return 'Finished';
     if (s === 'winner') return 'Winner';
     if (s?.startsWith?.('vote')) return 'Voting';
+    if (s === 'overtime') return 'Overtime';
     if (s?.includes?.('r1')) return 'Round 1';
     if (s?.includes?.('r2')) return 'Round 2';
     return s || 'Active';
@@ -104,7 +104,7 @@ export default function App() {
             !battle ? 'idle'
             : battle.stage === 'winner' ? 'finale'
             : battle.stage === 'finished' ? 'finale'
-            : battle.stage?.startsWith?.('vote') ? 'vote'
+            : battle.stage === 'overtime' || battle.stage?.startsWith?.('vote') ? 'vote'
             : 'play'
           }
         />
@@ -121,7 +121,7 @@ export default function App() {
         <div className="layout-center">
           <div className="toolbar glass-soft toolbar-neo">
             <div className="toolbar-left">
-              <div className="brand">NEO ARENA</div>
+              <div className="brand">SongSmackdown</div>
               <div className="stage-chip">{stageLabel}</div>
             </div>
             <div className="toolbar-actions">
@@ -139,6 +139,7 @@ export default function App() {
             <NeoArena />
             <VoteOverlay />
             <WinnerOverlay />
+            <GiftBadges />
 
             {/* Requested-by badges overlay */}
             {battle && (requesterLeft || requesterRight) && (battle.stage?.startsWith?.('r') || battle.stage === 'winner') && (
@@ -198,14 +199,16 @@ export default function App() {
           {battle && (
             <div className="battle-info glass-soft">
               <span className="info-pill"><strong>Stage:</strong> {battle.stage}</span>
-              {battle.voteWindow && <span className="info-pill">Vote Window: {battle.voteWindow}/2</span>}
+              {typeof battle.voteWindowIndex === 'number' && (
+                <span className="info-pill">Window: {battle.voteWindowIndex + 1}</span>
+              )}
               {battle.winner && (battle.stage === 'winner' || battle.stage === 'finished') && (
                 <span className="info-pill tag-win">
                   Winner: {battle.winner?.toUpperCase()}
                 </span>
               )}
               {battle.paused && <span className="info-pill tag-paused">Paused</span>}
-              {battle.stage?.startsWith?.('vote') && battle.voteEndsAt && (
+              {(battle.stage?.startsWith?.('vote') || battle.stage === 'overtime') && battle.voteEndsAt && (
                 <span className="info-pill tag-vote">
                   {Math.max(0, Math.ceil((battle.voteEndsAt - Date.now()) / 1000))}s
                 </span>

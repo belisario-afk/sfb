@@ -8,7 +8,9 @@ import {
   STAGE_GAP_MS,
   BATTLE_AUTOSTART_NEXT_DELAY,
   VOTING_RULE,
-  WINNER_ANIMATION_MS
+  WINNER_ANIMATION_MS,
+  OVERTIME_MS,
+  VOTE_EXTENSION_CAP_MS
 } from '../config/playbackConfig.js';
 import { playPreview, stopAllPreviews } from '../lib/audioManager.js';
 import { playTick } from '../lib/voteTickAudio.js';
@@ -16,18 +18,22 @@ import { playTick } from '../lib/voteTickAudio.js';
 const LOG = '[BattleEngine]';
 let battleCounter = 0;
 
-const VOTE_STAGES = new Set(['vote1', 'vote2']);
+const VOTE_STAGES = new Set(['vote1', 'vote2', 'overtime']);
 
-export default function useBattleEngine(spotifyClientId) {
+export default function useBattleEngine() {
   const [queue, setQueue] = useState([]);
   const [currentBattle, setCurrentBattle] = useState(null);
   const [spotifyPlayer, setSpotifyPlayer] = useState(null);
-
   const [voteRemaining, setVoteRemaining] = useState(0);
 
-  const timersRef = useRef({ main: null, raf: null, voteInterval: null, winnerTimer: null, nextTimer: null });
-  const pendingStageRef = useRef(null);
-  const playbackRetryRef = useRef({ key: null }); // track -> single retry guard
+  const timersRef = useRef({
+    main: null,
+    raf: null,
+    voteInterval: null,
+    winnerTimer: null,
+    nextTimer: null
+  });
+  const playbackRetryRef = useRef({ key: null });
 
   /* ---------- Queue Management ---------- */
   const addTrack = useCallback((track) => {
@@ -59,14 +65,16 @@ export default function useBattleEngine(spotifyClientId) {
       stageStartedAt: Date.now(),
       startedAt: Date.now(),
       paused: false,
+      // window is an array of { a: Set, b: Set }
       votesWindows: [
         { a: new Set(), b: new Set() },
         { a: new Set(), b: new Set() }
       ],
       voteTotals: { a: 0, b: 0 },
       winner: null,
-      voteWindow: null,
-      voteEndsAt: null
+      voteWindowIndex: null,  // 0,1,2...
+      voteEndsAt: null,
+      overtimeRequested: false
     };
     setCurrentBattle(battle);
     return battle;
@@ -86,43 +94,88 @@ export default function useBattleEngine(spotifyClientId) {
   const nextBattle = tryStartBattle;
 
   /* ---------- Voting Logic ---------- */
+  const recomputeTotals = useCallback((battle) => {
+    if (!battle?.votesWindows?.length) return { a: 0, b: 0 };
+    let a = 0, b = 0;
+    for (const w of battle.votesWindows) {
+      a += w.a.size;
+      b += w.b.size;
+    }
+    return { a, b };
+  }, []);
+
   const vote = useCallback((choice, userId = 'anon') => {
     if (choice !== 'a' && choice !== 'b') return;
     setCurrentBattle(prev => {
       if (!prev) return prev;
-      if (!VOTE_STAGES.has(prev.stage)) {
-        // Ignore votes outside the voting windows
-        return prev;
-      }
-      const windowIndex = prev.stage === 'vote1' ? 0 : 1;
+      if (!VOTE_STAGES.has(prev.stage)) return prev;
 
+      const idx =
+        prev.stage === 'vote1' ? 0 :
+        prev.stage === 'vote2' ? 1 :
+        prev.stage === 'overtime' ? 2 :
+        null;
+      if (idx == null) return prev;
+
+      // Ensure overtime window exists when stage is 'overtime'
+      const windows = [...prev.votesWindows];
+      if (idx === 2 && windows.length < 3) {
+        windows.push({ a: new Set(), b: new Set() });
+      }
+
+      // SINGLE_PER_BATTLE: ignore if user already voted in any window
       if (VOTING_RULE === 'SINGLE_PER_BATTLE') {
-        const already =
-          prev.votesWindows[0].a.has(userId) ||
-          prev.votesWindows[0].b.has(userId) ||
-          prev.votesWindows[1].a.has(userId) ||
-          prev.votesWindows[1].b.has(userId);
-        if (already) return prev;
+        for (const w of windows) {
+          if (w.a.has(userId) || w.b.has(userId)) return prev;
+        }
       } else {
-        const win = prev.votesWindows[windowIndex];
-        if (win.a.has(userId) || win.b.has(userId)) return prev;
+        // PER_WINDOW: ignore if already voted in this window
+        const w = windows[idx];
+        if (w.a.has(userId) || w.b.has(userId)) return prev;
       }
 
-      const newWindows = [
-        { a: new Set(prev.votesWindows[0].a), b: new Set(prev.votesWindows[0].b) },
-        { a: new Set(prev.votesWindows[1].a), b: new Set(prev.votesWindows[1].b) }
-      ];
-      if (choice === 'a') newWindows[windowIndex].a.add(userId);
-      else newWindows[windowIndex].b.add(userId);
+      // Add vote
+      const newWindows = windows.map((w, i) => ({
+        a: new Set(w.a),
+        b: new Set(w.b)
+      }));
+      if (choice === 'a') newWindows[idx].a.add(userId);
+      else newWindows[idx].b.add(userId);
 
-      const totalA = newWindows[0].a.size + newWindows[1].a.size;
-      const totalB = newWindows[0].b.size + newWindows[1].b.size;
-
+      const totals = recomputeTotals({ votesWindows: newWindows });
       return {
         ...prev,
         votesWindows: newWindows,
-        voteTotals: { a: totalA, b: totalB }
+        voteTotals: totals
       };
+    });
+  }, [recomputeTotals]);
+
+  /* ---------- Gift-driven time extension and overtime ---------- */
+  const extendCurrentVoteBy = useCallback((ms) => {
+    if (!ms || ms <= 0) return;
+    setCurrentBattle(prev => {
+      if (!prev) return prev;
+      if (!VOTE_STAGES.has(prev.stage)) return prev;
+      const now = Date.now();
+
+      // Cap: base window + cap
+      const hardCap = prev.stageStartedAt + VOTE_WINDOW_MS + VOTE_EXTENSION_CAP_MS;
+      const newEnds = Math.min(hardCap, (prev.voteEndsAt || now) + ms);
+      const newRemaining = Math.max(0, newEnds - now);
+
+      return {
+        ...prev,
+        voteEndsAt: newEnds
+      };
+    });
+  }, []);
+
+  const requestOvertime = useCallback(() => {
+    setCurrentBattle(prev => {
+      if (!prev) return prev;
+      if (prev.overtimeRequested) return prev;
+      return { ...prev, overtimeRequested: true };
     });
   }, []);
 
@@ -134,7 +187,7 @@ export default function useBattleEngine(spotifyClientId) {
       if (paused) {
         clearAllTimers();
         if (PLAYBACK_MODE === 'FULL') {
-          try { spotifyPlayer?.pause(); } catch {}
+          try { spotifyPlayer?.pause?.(); } catch {}
         } else {
           stopAllPreviews();
         }
@@ -147,7 +200,6 @@ export default function useBattleEngine(spotifyClientId) {
 
   const forceNextStage = useCallback(() => {
     clearAllTimers();
-    // Advance using the most recent state (no snapshots)
     advanceStage();
   }, []);
 
@@ -163,19 +215,14 @@ export default function useBattleEngine(spotifyClientId) {
         case 'vote1':     next = 'r2A_play'; break;
         case 'r2A_play':  next = 'r2B_play'; break;
         case 'r2B_play':  next = 'vote2'; break;
-        case 'vote2':     next = 'winner'; break;
+        case 'vote2':     next = prev.overtimeRequested ? 'overtime' : 'winner'; break;
+        case 'overtime':  next = 'winner'; break;
         case 'winner':    next = 'finished'; break;
         default:          next = 'finished';
       }
       scheduleStage(next);
       return prev;
     });
-  }
-
-  function recomputeTotals(battle) {
-    const aCount = (battle.votesWindows?.[0]?.a?.size || 0) + (battle.votesWindows?.[1]?.a?.size || 0);
-    const bCount = (battle.votesWindows?.[0]?.b?.size || 0) + (battle.votesWindows?.[1]?.b?.size || 0);
-    return { a: aCount, b: bCount };
   }
 
   function scheduleStage(nextStage, _isResume = false) {
@@ -186,10 +233,8 @@ export default function useBattleEngine(spotifyClientId) {
       let updated = { ...b, stage: nextStage, stageStartedAt: Date.now() };
 
       if (nextStage === 'finished') {
-        // Winner should have been computed in 'winner' stage
         console.log(LOG, 'Battle finished', updated.voteTotals, 'Winner:', updated.winner);
-        setVoteRemaining(0);
-        // Start next battle after delay (if configured)
+        // Auto-start next battle after a delay (if configured)
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.nextTimer = setTimeout(() => {
             tryStartBattle();
@@ -205,20 +250,20 @@ export default function useBattleEngine(spotifyClientId) {
         } else {
           stopAllPreviews();
         }
-        const finalTotals = recomputeTotals(b);
-        const finalWinner = computeWinner({ ...b, voteTotals: finalTotals });
+        const totals = recomputeTotals(b);
+        const winner = computeWinner(totals);
 
         updated = {
           ...b,
           stage: 'winner',
           stageStartedAt: Date.now(),
-          voteTotals: finalTotals,
-          winner: finalWinner,
-          voteWindow: null,
+          voteTotals: totals,
+          winner,
+          voteWindowIndex: null,
           voteEndsAt: null
         };
-        setVoteRemaining(0);
 
+        // Show winner animation, then transition to finished
         if (timersRef.current.winnerTimer) {
           clearTimeout(timersRef.current.winnerTimer);
           timersRef.current.winnerTimer = null;
@@ -240,8 +285,9 @@ export default function useBattleEngine(spotifyClientId) {
     });
   }
 
-  function computeWinner(battle) {
-    const { a, b } = battle.voteTotals;
+  function computeWinner(totals) {
+    if (!totals) return null;
+    const { a, b } = totals;
     if (a === b) return null;
     return a > b ? 'a' : 'b';
   }
@@ -252,17 +298,30 @@ export default function useBattleEngine(spotifyClientId) {
     } else {
       stopAllPreviews();
     }
-    const windowIndex = stage === 'vote1' ? 0 : 1;
-    const voteEndsAt = Date.now() + VOTE_WINDOW_MS;
-    const updated = { ...battle, voteWindow: windowIndex + 1, voteEndsAt };
-    setVoteRemaining(VOTE_WINDOW_MS);
+
+    let idx = stage === 'vote1' ? 0 : stage === 'vote2' ? 1 : 2;
+
+    // Ensure overtime window exists
+    const windows = [...battle.votesWindows];
+    if (idx === 2 && windows.length < 3) {
+      windows.push({ a: new Set(), b: new Set() });
+    }
+
+    const voteEndsAt = Date.now() + (stage === 'overtime' ? OVERTIME_MS : VOTE_WINDOW_MS);
+    const updated = {
+      ...battle,
+      votesWindows: windows,
+      voteWindowIndex: idx,
+      voteEndsAt
+    };
+    setVoteRemaining(stage === 'overtime' ? OVERTIME_MS : VOTE_WINDOW_MS);
 
     if (timersRef.current.voteInterval) {
       clearInterval(timersRef.current.voteInterval);
       timersRef.current.voteInterval = null;
     }
     timersRef.current.voteInterval = setInterval(() => {
-      const remaining = voteEndsAt - Date.now();
+      const remaining = updated.voteEndsAt - Date.now();
       if (remaining <= 0) {
         setVoteRemaining(0);
         clearInterval(timersRef.current.voteInterval);
@@ -304,7 +363,6 @@ export default function useBattleEngine(spotifyClientId) {
 
   function scheduleSegmentEnd(segment) {
     const target = performance.now() + segment.durationMs;
-    pendingStageRef.current = { stage: segment, end: target };
     const early = Math.max(0, segment.durationMs - TRANSITION_BUFFER);
     timersRef.current.main = setTimeout(() => {
       const spin = () => {
@@ -346,7 +404,6 @@ export default function useBattleEngine(spotifyClientId) {
     try {
       const res = await doPlay();
       if (!res.ok) {
-        // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
           const retryKey = track.id + ':' + offsetMs;
           if (playbackRetryRef.current.key !== retryKey) {
@@ -354,12 +411,7 @@ export default function useBattleEngine(spotifyClientId) {
             console.warn(LOG, 'Playback 404/403, attempting device transfer & retry...');
             await transferToDevice(token, deviceId);
             await new Promise(r => setTimeout(r, 400));
-            const res2 = await doPlay();
-            if (!res2.ok) {
-              console.warn(LOG, 'Retry failed', res2.status);
-            }
-          } else {
-            console.warn(LOG, 'Already retried this segment; giving up.');
+            await doPlay();
           }
         } else {
           console.warn(LOG, 'Playback request failed', res.status);
@@ -425,6 +477,9 @@ export default function useBattleEngine(spotifyClientId) {
     togglePause,
     spotifyPlayer,
     setSpotifyPlayer,
-    voteRemaining
+    voteRemaining,
+    // gift-driven controls:
+    extendCurrentVoteBy,
+    requestOvertime
   };
 }

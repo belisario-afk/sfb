@@ -1,15 +1,16 @@
 import React, { useEffect, useRef } from 'react';
 import { useAppContext } from '../../context/AppContext.jsx';
+import { SIDE_COLORS } from '../../config/playbackConfig.js';
 
-// Lightweight Three.js scene with CDN dynamic import and safe fallback.
+// Three.js dynamic import backdrop with audio/hype-reactive orbits, ribbons, and leader-colored cones
 export default function ThreeBackdrop({ mode = 'idle' }) {
-  const { reducedMotion } = useAppContext();
+  const { reducedMotion, hype, leader, isGoldenHour, battle } = useAppContext();
   const mountRef = useRef(null);
   const rafRef = useRef(null);
   const teardownRef = useRef(() => {});
 
   useEffect(() => {
-    if (reducedMotion) return; // respect user pref
+    if (reducedMotion) return;
 
     let disposed = false;
 
@@ -18,7 +19,6 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
       try {
         THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
       } catch {
-        // Could not load; leave silently (App will still show other FX if any)
         return;
       }
       if (disposed) return;
@@ -31,34 +31,34 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(mount.clientWidth, mount.clientHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.domElement.style.position = 'absolute';
-      renderer.domElement.style.inset = '0';
-      renderer.domElement.style.width = '100%';
-      renderer.domElement.style.height = '100%';
-      renderer.domElement.style.pointerEvents = 'none';
+      Object.assign(renderer.domElement.style, {
+        position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none'
+      });
       mount.appendChild(renderer.domElement);
 
       // Scene & camera
       const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(55, mount.clientWidth / mount.clientHeight, 0.1, 200);
+      const camera = new THREE.PerspectiveCamera(55, mount.clientWidth / mount.clientHeight, 0.1, 300);
       camera.position.set(0, 0, 24);
 
       // Lights
       const amb = new THREE.AmbientLight(0xffffff, 0.6);
-      const key = new THREE.DirectionalLight(0xffffff, 1.2);
-      key.position.set(5, 10, 10);
+      const key = new THREE.DirectionalLight(0xffffff, 1.0);
+      key.position.set(8, 10, 10);
       scene.add(amb, key);
 
-      // Background gradient plane
-      const bgGeo = new THREE.PlaneGeometry(60, 34, 1, 1);
+      // Background gradient plane (shader)
+      const bgGeo = new THREE.PlaneGeometry(64, 36, 1, 1);
       const bgMat = new THREE.ShaderMaterial({
         uniforms: {
           uTime: { value: 0 },
-          uMode: { value: modeToUniform(mode) }
+          uMode: { value: modeToUniform(mode) },
+          uIntensity: { value: 0 },
+          uGold: { value: 0 }
         },
         vertexShader: `
           varying vec2 vUv;
-          void main(){
+          void main() {
             vUv = uv;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
           }
@@ -68,6 +68,8 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
           varying vec2 vUv;
           uniform float uTime;
           uniform float uMode;
+          uniform float uIntensity;
+          uniform float uGold;
           // 0=idle,1=play,2=vote,3=finale
           vec3 pal(float t, vec3 a, vec3 b, vec3 c, vec3 d){
             return a + b*cos(6.28318*(c*t+d));
@@ -89,52 +91,84 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
             float r = length(p);
             float glow = smoothstep(1.0, 0.1, r);
             vec3 col = palette(uMode, t + r*0.3);
-            col += 0.15*vec3(0.5+0.5*sin(4.0*(p.x+t)), 0.5+0.5*cos(3.0*(p.y+t*1.2)), 0.5+0.5*cos(5.0*(p.x-p.y+t)));
-            col *= glow + 0.2;
-            gl_FragColor = vec4(col, 0.9);
+            // Add wave bands that pulse with intensity
+            col += 0.12 * uIntensity * vec3(
+              0.5+0.5*sin(5.0*(p.x+t)),
+              0.5+0.5*cos(3.0*(p.y+t*1.2)),
+              0.5+0.5*cos(6.0*(p.x-p.y+t*0.8))
+            );
+            // Golden tint overlay
+            col = mix(col, col + vec3(0.35, 0.28, 0.0), clamp(uGold, 0.0, 1.0));
+            col *= glow + 0.22;
+            gl_FragColor = vec4(col, 0.92);
           }
         `,
         transparent: true,
         depthWrite: false
       });
       const bg = new THREE.Mesh(bgGeo, bgMat);
-      bg.position.set(0, 0, -10);
+      bg.position.set(0, 0, -12);
       scene.add(bg);
 
-      // Particle stars
-      const starGeo = new THREE.BufferGeometry();
-      const starCount = 1200;
-      const positions = new Float32Array(starCount * 3);
-      for (let i = 0; i < starCount; i++) {
-        positions[i * 3 + 0] = (Math.random() - 0.5) * 50;
-        positions[i * 3 + 1] = (Math.random() - 0.5) * 30;
-        positions[i * 3 + 2] = -5 - Math.random() * 10;
-      }
-      starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      const starMat = new THREE.PointsMaterial({
-        size: 0.06,
-        color: 0x9efcff,
-        transparent: true,
-        opacity: 0.85
-      });
-      const stars = new THREE.Points(starGeo, starMat);
-      scene.add(stars);
+      // Volumetric light cones for sides (leader-colored)
+      const coneGeo = new THREE.ConeGeometry(0.8, 12, 24, 1, true);
+      const coneMatL = new THREE.MeshBasicMaterial({ color: SIDE_COLORS.a, transparent: true, opacity: 0.18, depthWrite: false });
+      const coneMatR = new THREE.MeshBasicMaterial({ color: SIDE_COLORS.b, transparent: true, opacity: 0.18, depthWrite: false });
+      const coneL = new THREE.Mesh(coneGeo, coneMatL);
+      const coneR = new THREE.Mesh(coneGeo, coneMatR);
+      coneL.position.set(-6, -3, -3); coneR.position.set(6, -3, -3);
+      coneL.rotation.x = Math.PI; coneR.rotation.x = Math.PI;
+      scene.add(coneL, coneR);
 
-      // Beams
-      const beamGeo = new THREE.ConeGeometry(0.6, 10, 16, 1, true);
-      const beamMat = new THREE.MeshBasicMaterial({
-        color: 0x58c7ff,
-        transparent: true,
-        opacity: 0.18,
-        depthWrite: false
-      });
-      const beamLeft = new THREE.Mesh(beamGeo, beamMat);
-      const beamRight = new THREE.Mesh(beamGeo.clone(), beamMat.clone());
-      beamLeft.position.set(-6, -3, -2);
-      beamRight.position.set(6, -3, -2);
-      beamLeft.rotation.x = Math.PI;
-      beamRight.rotation.x = Math.PI;
-      scene.add(beamLeft, beamRight);
+      // Orbits around sides (instanced spheres)
+      const orbitCount = 600;
+      const sphereGeo = new THREE.SphereGeometry(0.06, 8, 8);
+      const matA = new THREE.MeshBasicMaterial({ color: SIDE_COLORS.a, transparent: true, opacity: 0.9 });
+      const matB = new THREE.MeshBasicMaterial({ color: SIDE_COLORS.b, transparent: true, opacity: 0.9 });
+      const instA = new THREE.InstancedMesh(sphereGeo, matA, orbitCount);
+      const instB = new THREE.InstancedMesh(sphereGeo, matB, orbitCount);
+      scene.add(instA, instB);
+
+      const dummy = new THREE.Object3D();
+      const seedsA = new Array(orbitCount).fill(0).map(() => Math.random());
+      const seedsB = new Array(orbitCount).fill(0).map(() => Math.random());
+
+      function updateOrbits(time, intensity) {
+        const baseR = 2.6 + 0.2 * Math.sin(time * 0.5);
+        const baseZ = -1.2;
+        for (let i = 0; i < orbitCount; i++) {
+          const s = seedsA[i];
+          const a = time * (0.5 + s) + s * 6.283;
+          const r = baseR + 0.6 * Math.sin(time * 0.7 + s * 12.0);
+          dummy.position.set(-6 + Math.cos(a) * r, 0.3 * Math.sin(a * 2.0 + s * 10.0), baseZ + 0.2 * Math.sin(a * 3.0));
+          const sc = 0.6 + 0.9 * intensity * (0.5 + 0.5 * Math.sin(a * 4.0 + time * 3.0));
+          dummy.scale.setScalar(sc * 0.6);
+          dummy.updateMatrix();
+          instA.setMatrixAt(i, dummy.matrix);
+        }
+        instA.instanceMatrix.needsUpdate = true;
+
+        for (let i = 0; i < orbitCount; i++) {
+          const s = seedsB[i];
+          const a = -time * (0.55 + s) + s * 6.283;
+          const r = baseR + 0.6 * Math.cos(time * 0.6 + s * 10.0);
+          dummy.position.set(6 + Math.cos(a) * r, 0.3 * Math.sin(a * 2.0 + s * 9.0), baseZ + 0.2 * Math.sin(a * 2.6));
+          const sc = 0.6 + 0.9 * intensity * (0.5 + 0.5 * Math.cos(a * 3.5 + time * 2.6));
+          dummy.scale.setScalar(sc * 0.6);
+          dummy.updateMatrix();
+          instB.setMatrixAt(i, dummy.matrix);
+        }
+        instB.instanceMatrix.needsUpdate = true;
+      }
+
+      // Ribbon trails (two torus ribbons with hue shift on peaks)
+      const ribbonGeo = new THREE.TorusKnotGeometry(2.4, 0.04, 120, 16);
+      const ribbonMatA = new THREE.MeshBasicMaterial({ color: SIDE_COLORS.a, transparent: true, opacity: 0.4 });
+      const ribbonMatB = new THREE.MeshBasicMaterial({ color: SIDE_COLORS.b, transparent: true, opacity: 0.4 });
+      const ribbonA = new THREE.Mesh(ribbonGeo, ribbonMatA);
+      const ribbonB = new THREE.Mesh(ribbonGeo.clone(), ribbonMatB.clone());
+      ribbonA.position.set(-6, 0, -1); ribbonB.position.set(6, 0, -1);
+      scene.add(ribbonA, ribbonB);
 
       // Resize
       const onResize = () => {
@@ -153,10 +187,29 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
         const dt = now - t0;
         t0 = now;
 
+        const intensity = computeIntensity(hype, battle?.stage, isGoldenHour);
+        const t = now * 0.001;
+
         bgMat.uniforms.uTime.value += dt * 0.001;
-        stars.rotation.z += dt * 0.00006;
-        beamLeft.rotation.z += dt * 0.00025;
-        beamRight.rotation.z -= dt * 0.00022;
+        bgMat.uniforms.uMode.value = modeToUniform(mode);
+        bgMat.uniforms.uIntensity.value = intensity;
+        bgMat.uniforms.uGold.value = isGoldenHour ? 1.0 : 0.0;
+
+        // Leader-colored cones: adjust opacity and color
+        const isA = leader === 'a';
+        const isB = leader === 'b';
+        coneL.material.color.setHex(SIDE_COLORS.a);
+        coneR.material.color.setHex(SIDE_COLORS.b);
+        coneL.material.opacity = 0.14 + 0.22 * (isA ? 1 : 0) + 0.08 * intensity;
+        coneR.material.opacity = 0.14 + 0.22 * (isB ? 1 : 0) + 0.08 * intensity;
+
+        // Orbits
+        updateOrbits(t, intensity);
+
+        // Ribbons spin and hue pulse on intensity peaks
+        const rotSpeed = 0.2 + 0.6 * intensity;
+        ribbonA.rotation.y += rotSpeed * dt * 0.001;
+        ribbonB.rotation.y -= rotSpeed * dt * 0.001;
 
         renderer.render(scene, camera);
         rafRef.current = requestAnimationFrame(animate);
@@ -164,9 +217,7 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
       rafRef.current = requestAnimationFrame(animate);
 
       teardownRef.current = () => {
-        try {
-          cancelAnimationFrame(rafRef.current);
-        } catch {}
+        try { cancelAnimationFrame(rafRef.current); } catch {}
         window.removeEventListener('resize', onResize);
         scene.traverse((obj) => {
           if (obj.geometry) obj.geometry.dispose?.();
@@ -176,7 +227,7 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
           }
         });
         renderer.dispose();
-        mount.removeChild(renderer.domElement);
+        try { mount.removeChild(renderer.domElement); } catch {}
       };
     }
 
@@ -185,7 +236,7 @@ export default function ThreeBackdrop({ mode = 'idle' }) {
       disposed = true;
       try { teardownRef.current(); } catch {}
     };
-  }, [reducedMotion, mode]);
+  }, [reducedMotion, mode, hype, leader, isGoldenHour, battle?.stage]);
 
   return <div className="three-backdrop" ref={mountRef} aria-hidden="true" />;
 }
@@ -197,4 +248,14 @@ function modeToUniform(mode) {
     case 'finale': return 3.0;
     default: return 0.0;
   }
+}
+
+function computeIntensity(hype, stage, golden) {
+  const base =
+    stage === 'winner' ? 0.9 :
+    stage?.startsWith?.('vote') || stage === 'overtime' ? 0.7 :
+    stage?.startsWith?.('r') ? 0.5 : 0.3;
+  let val = base + hype * 0.8;
+  if (golden) val += 0.3;
+  return Math.max(0, Math.min(1.2, val));
 }
