@@ -8,13 +8,18 @@ export const ROUND2_SEGMENT_MS = 20_000; // Each track second pass (continuation
 export const VOTE_WINDOW_MS   = 10_000;  // Voting window duration
 
 // Winner animation duration (ms) after final tally before finishing
-export const WINNER_ANIMATION_MS = 3000;
+export const WINNER_ANIMATION_MS = 2500;
+
+// Victory play configuration
+// After winner is announced, play the winning song from this offset to the end.
+export const VICTORY_PLAY_OFFSET_MS = 40_000;
+export const VICTORY_MIN_PLAY_MS = 5_000; // if song is shorter than offset, still play at least this
 
 // Scheduling
 export const TRANSITION_BUFFER = 180;   // ms early scheduling for playback transitions
 export const STAGE_GAP_MS = 120;        // small gap between segments
 
-// Delay before auto-starting the next battle AFTER the winner animation has played
+// Delay before auto-starting the next battle AFTER the winner/victory play has completed
 export const BATTLE_AUTOSTART_NEXT_DELAY = 3000;
 
 // Voting behavior

@@ -8,7 +8,9 @@ import {
   STAGE_GAP_MS,
   BATTLE_AUTOSTART_NEXT_DELAY,
   VOTING_RULE,
-  WINNER_ANIMATION_MS
+  WINNER_ANIMATION_MS,
+  VICTORY_PLAY_OFFSET_MS,
+  VICTORY_MIN_PLAY_MS
 } from '../config/playbackConfig.js';
 import { playPreview, stopAllPreviews } from '../lib/audioManager.js';
 import { playTick } from '../lib/voteTickAudio.js';
@@ -25,7 +27,14 @@ export default function useBattleEngine(spotifyClientId) {
 
   const [voteRemaining, setVoteRemaining] = useState(0);
 
-  const timersRef = useRef({ main: null, raf: null, voteInterval: null, winnerTimer: null, nextTimer: null });
+  const timersRef = useRef({
+    main: null,
+    raf: null,
+    voteInterval: null,
+    winnerTimer: null,
+    victoryTimer: null,
+    nextTimer: null
+  });
   const pendingStageRef = useRef(null);
   const playbackRetryRef = useRef({ key: null }); // track -> single retry guard
 
@@ -147,25 +156,25 @@ export default function useBattleEngine(spotifyClientId) {
 
   const forceNextStage = useCallback(() => {
     clearAllTimers();
-    // Advance using the most recent state (no snapshots)
     advanceStage();
   }, []);
 
-  /* ---------- Stage Handling (no snapshots) ---------- */
+  /* ---------- Stage Handling (no stale snapshots) ---------- */
   function advanceStage() {
     setCurrentBattle(prev => {
       if (!prev) return prev;
       let next;
       switch (prev.stage) {
-        case 'intro':     next = 'r1A_play'; break;
-        case 'r1A_play':  next = 'r1B_play'; break;
-        case 'r1B_play':  next = 'vote1'; break;
-        case 'vote1':     next = 'r2A_play'; break;
-        case 'r2A_play':  next = 'r2B_play'; break;
-        case 'r2B_play':  next = 'vote2'; break;
-        case 'vote2':     next = 'winner'; break;
-        case 'winner':    next = 'finished'; break;
-        default:          next = 'finished';
+        case 'intro':        next = 'r1A_play'; break;
+        case 'r1A_play':     next = 'r1B_play'; break;
+        case 'r1B_play':     next = 'vote1'; break;
+        case 'vote1':        next = 'r2A_play'; break;
+        case 'r2A_play':     next = 'r2B_play'; break;
+        case 'r2B_play':     next = 'vote2'; break;
+        case 'vote2':        next = 'winner'; break;
+        case 'winner':       next = 'victory_play'; break;
+        case 'victory_play': next = 'finished'; break;
+        default:             next = 'finished';
       }
       scheduleStage(next);
       return prev;
@@ -186,10 +195,9 @@ export default function useBattleEngine(spotifyClientId) {
       let updated = { ...b, stage: nextStage, stageStartedAt: Date.now() };
 
       if (nextStage === 'finished') {
-        // Winner should have been computed in 'winner' stage
+        // Victory already played. Cleanup and schedule next battle.
         console.log(LOG, 'Battle finished', updated.voteTotals, 'Winner:', updated.winner);
         setVoteRemaining(0);
-        // Start next battle after delay (if configured)
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.nextTimer = setTimeout(() => {
             tryStartBattle();
@@ -199,7 +207,7 @@ export default function useBattleEngine(spotifyClientId) {
       }
 
       if (nextStage === 'winner') {
-        // Pause playback and compute final totals/winner from the latest state
+        // Pause playback and compute final totals/winner from latest state
         if (PLAYBACK_MODE === 'FULL') {
           try { spotifyPlayer?.pause?.(); } catch {}
         } else {
@@ -224,8 +232,45 @@ export default function useBattleEngine(spotifyClientId) {
           timersRef.current.winnerTimer = null;
         }
         timersRef.current.winnerTimer = setTimeout(() => {
-          advanceStage(); // goes to 'finished'
+          advanceStage(); // go to 'victory_play'
         }, WINNER_ANIMATION_MS);
+
+        return updated;
+      }
+
+      if (nextStage === 'victory_play') {
+        // If tie, skip victory play
+        if (!b.winner) {
+          // Directly finish if no winner
+          setTimeout(() => advanceStage(), 50);
+          return { ...b, stage: 'victory_play', stageStartedAt: Date.now() };
+        }
+
+        const side = b.winner; // 'a' or 'b'
+        const track = b[side];
+        // Determine remaining duration from offset
+        const durationTotal = Number(track?.duration_ms) || 180_000;
+        let offsetMs = VICTORY_PLAY_OFFSET_MS;
+        if (offsetMs >= durationTotal) {
+          // If song shorter than 40s, start at 0 but still ensure a min play
+          offsetMs = Math.max(0, durationTotal - VICTORY_MIN_PLAY_MS);
+        }
+        const remainingMs = Math.max(VICTORY_MIN_PLAY_MS, durationTotal - offsetMs);
+
+        if (PLAYBACK_MODE === 'FULL') {
+          playSpotifySegment(track, offsetMs);
+        } else {
+          // Previews are 30s; 40s offset doesn't apply.
+          // As a fallback, play 10s of the preview if available.
+          const seconds = Math.min(10, Math.max(5, remainingMs / 1000));
+          if (track?.preview_url) {
+            playPreview('VICTORY', track.preview_url, seconds);
+          }
+        }
+
+        timersRef.current.victoryTimer = setTimeout(() => {
+          advanceStage(); // go to 'finished'
+        }, remainingMs);
 
         return updated;
       }
@@ -396,10 +441,12 @@ export default function useBattleEngine(spotifyClientId) {
     if (timersRef.current.main) clearTimeout(timersRef.current.main);
     if (timersRef.current.raf) cancelAnimationFrame(timersRef.current.raf);
     if (timersRef.current.winnerTimer) clearTimeout(timersRef.current.winnerTimer);
+    if (timersRef.current.victoryTimer) clearTimeout(timersRef.current.victoryTimer);
     if (timersRef.current.nextTimer) clearTimeout(timersRef.current.nextTimer);
     timersRef.current.main = null;
     timersRef.current.raf = null;
     timersRef.current.winnerTimer = null;
+    timersRef.current.victoryTimer = null;
     timersRef.current.nextTimer = null;
   }
 

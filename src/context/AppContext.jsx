@@ -3,7 +3,8 @@ import React, {
   useContext,
   useEffect,
   useState,
-  useCallback
+  useCallback,
+  useRef
 } from 'react';
 
 import useBattleEngine from '../hooks/useBattleEngine.js';
@@ -31,41 +32,20 @@ export const useAppContext = () => useContext(AppContext);
 /* --------- Helper: parse !battle messages into a clean search query --------- */
 function extractBattleQuery(rawMessage) {
   if (!rawMessage) return null;
-  // Normalize whitespace and remove control chars
   let s = String(rawMessage).replace(/\s+/g, ' ').trim();
-
-  // Ensure it starts with !battle (case-insensitive)
   const m = s.match(/^\s*!battle\s+(.+)$/i);
   if (!m) return null;
   s = m[1];
-
-  // Remove URLs if any slipped through
   s = s.replace(/https?:\/\/\S+/gi, ' ').replace(/\s+/g, ' ').trim();
-
-  // Remove emojis and other symbols that can confuse search (keep letters, numbers, common punctuation)
   s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim();
-
-  // Common patterns: "Title - Artist", "Title by Artist"
   const byMatch = s.match(/^(.+?)\s+by\s+(.+)$/i);
-  if (byMatch) {
-    const title = byMatch[1].trim();
-    const artist = byMatch[2].trim();
-    s = `${title} ${artist}`;
-  } else {
+  if (byMatch) s = `${byMatch[1].trim()} ${byMatch[2].trim()}`;
+  else {
     const dashMatch = s.match(/^(.+?)\s*[-–—]\s*(.+)$/);
-    if (dashMatch) {
-      const title = dashMatch[1].trim();
-      const artist = dashMatch[2].trim();
-      s = `${title} ${artist}`;
-    }
+    if (dashMatch) s = `${dashMatch[1].trim()} ${dashMatch[2].trim()}`;
   }
-
-  // Strip surrounding quotes if present
   s = s.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim();
-
-  // Limit length for sanity
   if (s.length > 120) s = s.slice(0, 120);
-
   return s || null;
 }
 
@@ -84,12 +64,8 @@ export function AppProvider({ children }) {
 
   // Chat / Relay
   const [chatMode, setChatMode] = useState(localStorage.getItem('chatMode') || 'simulation');
-  const [relayUrl, setRelayUrl] = useState(
-    localStorage.getItem('relayUrl') || ''
-  );
-  const [tiktokUsername, setTiktokUsername] = useState(
-    localStorage.getItem('tiktokUsername') || ''
-  );
+  const [relayUrl, setRelayUrl] = useState(localStorage.getItem('relayUrl') || '');
+  const [tiktokUsername, setTiktokUsername] = useState(localStorage.getItem('tiktokUsername') || '');
 
   // Visual preferences
   const [visualFxEnabled, setVisualFxEnabled] = useState(
@@ -106,7 +82,6 @@ export function AppProvider({ children }) {
       return DEFAULT_REDUCED_MOTION;
     })()
   );
-
   useEffect(() => {
     document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false';
   }, [reducedMotion]);
@@ -126,6 +101,7 @@ export function AppProvider({ children }) {
     });
   }, []);
 
+  // Auth helpers
   const getAccessToken = useCallback(async () => {
     if (!spotifyClientId) return null;
     try {
@@ -147,21 +123,22 @@ export function AppProvider({ children }) {
     grantedScopes.includes('user-modify-playback-state') &&
     grantedScopes.includes('user-read-playback-state');
 
+  // Spotify player
   const spotifyWebPlayer = useSpotifyWebPlayer({
     getAccessToken,
     hasStreamingScopes,
-    name: 'Battle Arena Player',
+    name: 'SongSmackdown Player',
     volume: 0.8,
     autoTransfer: true
   });
 
+  // Battle engine
   const battleEngine = useBattleEngine(
     spotifyClientId ||
       localStorage.getItem('customSpotifyClientId') ||
       import.meta.env.VITE_SPOTIFY_CLIENT_ID ||
       ''
   );
-
   const {
     queue,
     addTrack,
@@ -182,11 +159,7 @@ export function AppProvider({ children }) {
   }, [spotifyWebPlayer.player, setEngineSpotifyPlayer]);
 
   // Chat hook wired to relay with TikTok username
-  const chat = useChat({
-    mode: chatMode,
-    relayUrl,
-    tiktokUsername
-  });
+  const chat = useChat({ mode: chatMode, relayUrl, tiktokUsername });
 
   const normalizeRelay = useCallback((val) => {
     let v = (val || '').trim();
@@ -197,18 +170,15 @@ export function AppProvider({ children }) {
     localStorage.setItem('relayUrl', v);
     setRelayUrl(v);
   }, []);
-
   const updateClientId = useCallback((cid) => {
     const t = cid.trim();
     setSpotifyClientIdState(t);
     localStorage.setItem('customSpotifyClientId', t);
   }, []);
-
   const setChatModePersist = useCallback((mode) => {
     localStorage.setItem('chatMode', mode);
     setChatMode(mode);
   }, []);
-
   const setTiktokUsernamePersist = useCallback((name) => {
     const t = (name || '').trim();
     localStorage.setItem('tiktokUsername', t);
@@ -221,7 +191,6 @@ export function AppProvider({ children }) {
     setAuthState(null);
     setAuthError(null);
   }, []);
-
   const beginSpotifyAuth = useCallback(() => {
     if (!spotifyClientId) {
       setAuthError('No Spotify Client ID set.');
@@ -284,10 +253,66 @@ export function AppProvider({ children }) {
     };
   }, [spotifyClientId]);
 
-  // Chat commands from TikTok relay
+  /* ---------- Hype + Gift mapping ---------- */
+  const [hype, setHype] = useState({ a: 0, b: 0 });
+  const [hypePulse, setHypePulse] = useState({ a: 0, b: 0 }); // increments to trigger CSS pulse
+  const votesByUserRef = useRef(new Map()); // userId -> 'a' | 'b'
+
+  // Reset hype and per-battle votes tracking when a new battle starts
+  useEffect(() => {
+    if (!battle) return;
+    setHype({ a: 0, b: 0 });
+    setHypePulse({ a: 0, b: 0 });
+    votesByUserRef.current = new Map();
+  }, [battle?.id]);
+
+  const addHype = useCallback((side, amount) => {
+    if (side !== 'a' && side !== 'b') return;
+    setHype(prev => {
+      const next = { ...prev };
+      next[side] = Math.max(0, Math.min(9999, (next[side] || 0) + amount));
+      return next;
+    });
+    setHypePulse(prev => ({ ...prev, [side]: (prev[side] || 0) + 1 }));
+  }, []);
+
+  function resolveGiftSideFromVote(msg) {
+    const uid = msg?.userId || msg?.username || msg?.displayName;
+    if (!uid) return null;
+    const side = votesByUserRef.current.get(uid);
+    return side || null;
+    // Note: You can enhance to inspect msg.extra like "!vote a" tie-in if your relay provides it.
+  }
+
+  function handleGiftMessage(msg) {
+    // Expecting shape: { type:'gift', value: <coins>, userId, username, displayName, avatarUrl, repeatEnd? }
+    const coins = Number(msg?.value || msg?.coins || msg?.diamondCount || 0);
+    if (!coins) return;
+    if (msg?.repeatEnd === false) return; // process only at repeat end to avoid spam
+    const side = resolveGiftSideFromVote(msg); // only add hype if sender voted
+    const isMedium = coins >= 20 && coins <= 99;
+    const isSmall = coins > 0 && coins < 20;
+    if (!isSmall && !isMedium) return; // per your instruction: small/medium only in this update
+
+    // Pulse UI (scoreboard and hype meter) on whichever side we can attribute
+    if (side) {
+      addHype(side, isMedium ? 2 : 1);
+    } else {
+      // No vote known: show neutral pulse by toggling both lightly (no hype added)
+      setHypePulse(prev => ({ a: prev.a + 1, b: prev.b + 1 }));
+    }
+  }
+
+  /* ---------- Chat commands from TikTok relay ---------- */
   useEffect(() => {
     if (!chat?.subscribe) return;
     const handler = async (msg) => {
+      // Gift events
+      if (msg?.type === 'gift') {
+        handleGiftMessage(msg);
+        return;
+      }
+
       const raw = (msg?.text || '').trim();
       if (!raw) return;
       const lower = raw.toLowerCase();
@@ -296,6 +321,8 @@ export function AppProvider({ children }) {
         const side = lower.split(/\s+/)[1];
         if (side === 'a' || side === 'b') {
           const voterId = msg.userId || msg.username || msg.displayName || 'anon';
+          // Record mapping for hype attribution
+          votesByUserRef.current.set(voterId, side);
           vote(side, voterId);
           console.log('[ChatCmd] vote', side, 'from', voterId);
         }
@@ -325,7 +352,6 @@ export function AppProvider({ children }) {
       try {
         const top = await searchTopTrackByQuery(authState.accessToken, query);
         if (top) {
-          // Attach requester metadata so Arena/Queue can show it
           const enriched = {
             ...top,
             _requestedBy: requester || null
@@ -353,8 +379,8 @@ export function AppProvider({ children }) {
 
   const addDemoPair = useCallback(() => {
     addTrackList([
-      { id: 'demo-track-a', name: 'Demo Track A', artists: [{ name: 'Demo Artist' }], album: { images: [] }, uri: 'spotify:track:0udZHhCi7p1YzMlvI4fXoK', preview_url: null, _requestedBy: { name: 'DemoUserA' } },
-      { id: 'demo-track-b', name: 'Demo Track B', artists: [{ name: 'Demo Artist' }], album: { images: [] }, uri: 'spotify:track:1301WleyT98MSxVHPZCA6M', preview_url: null, _requestedBy: { name: 'DemoUserB' } }
+      { id: 'demo-track-a', name: 'Demo Track A', artists: [{ name: 'Demo Artist' }], album: { images: [] }, uri: 'spotify:track:0udZHhCi7p1YzMlvI4fXoK', preview_url: null, duration_ms: 180000, _requestedBy: { name: 'DemoUserA' } },
+      { id: 'demo-track-b', name: 'Demo Track B', artists: [{ name: 'Demo Artist' }], album: { images: [] }, uri: 'spotify:track:1301WleyT98MSxVHPZCA6M', preview_url: null, duration_ms: 200000, _requestedBy: { name: 'DemoUserB' } }
     ]);
   }, [addTrackList]);
 
@@ -376,12 +402,6 @@ export function AppProvider({ children }) {
     reconnect: spotifyWebPlayer.reconnect,
     hasStreamingScope: hasStreamingScopes
   };
-
-  // Provide tryStartBattle AND a safe nextBattle alias to avoid "is not a function"
-  const safeNextBattle = useCallback(() => {
-    if (typeof tryStartBattle === 'function') return tryStartBattle();
-    console.warn('[AppContext] tryStartBattle is not available');
-  }, [tryStartBattle]);
 
   const value = {
     // Auth
@@ -410,7 +430,6 @@ export function AppProvider({ children }) {
     queue,
     battle,
     tryStartBattle,
-    nextBattle: safeNextBattle,
     vote,
     forceNextStage,
     togglePause,
@@ -421,13 +440,17 @@ export function AppProvider({ children }) {
     addDemoPair,
     previewTrack,
 
-    // UI / modal
-    modalOpen,
-    setModalOpen,
-
     // Player
     spotifyPlayer,
     voteRemaining,
+
+    // Hype
+    hype,
+    hypePulse,
+
+    // UI / modal
+    modalOpen,
+    setModalOpen,
 
     // Visual prefs
     visualFxEnabled,
