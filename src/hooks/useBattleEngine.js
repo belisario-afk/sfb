@@ -169,7 +169,7 @@ export default function useBattleEngine(spotifyClientId) {
       else newWindows[windowIndex].b.add(userId);
 
       const totalA = newWindows[0].a.size + newWindows[1].a.size;
-      const totalB = newWindows[0].b.b.size + newWindows[1].b.size;
+      const totalB = newWindows[0].b.size + newWindows[1].b.size; // FIXED
 
       return {
         ...prev,
