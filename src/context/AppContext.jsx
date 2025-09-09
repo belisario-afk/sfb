@@ -333,7 +333,7 @@ export function AppProvider({ children }) {
     const isMoneyGun = giftName.includes('money gun') || giftName.includes('moneygun');
     const isMega = coins >= 500 || isMoneyGun;
 
-    // Medium/Small hype effects (kept from earlier behavior)
+    // Medium/Small hype effects
     const isMedium = coins >= 20 && coins <= 99;
     const isSmall = coins > 0 && coins < 20;
 
@@ -352,13 +352,11 @@ export function AppProvider({ children }) {
           amount: coins,
           ts: Date.now()
         });
-        // auto-clear banner after 5s
         setTimeout(() => setGiftBanner(null), 5000);
         console.log('[Gift][PROMOTE]', coins, 'coins by', requester.username || requester.name);
       } else {
         console.log('[Gift][PROMOTE] No queued request to promote for', requester.username || requester.name);
       }
-      // Mega gifts do not alter hype in this step (rule not requested), but could if desired.
       return;
     }
 

@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext.jsx';
 
 /**
  * Shows a celebratory banner when a Money Gun (or 500+ coin) gift promotes a song.
- * Expects the PNGs to be placed in:
+ * Place assets in:
  *   public/gifts/moneygun.png
  *   public/gifts/coin.png
  */
@@ -29,7 +29,7 @@ export default function GiftBanner() {
         <div style={styles.right}>
           <div style={styles.coinWrap}>
             <img src={coinUrl} alt="Coin" style={styles.coin} onError={(e) => e.currentTarget.style.display = 'none'} />
-            <span style={styles.coinLabel}>500+</span>
+            <span style={styles.coinLabel}>500</span>
           </div>
         </div>
       </div>
@@ -61,27 +61,16 @@ const styles = {
     backdropFilter: 'blur(8px)',
     animation: 'giftSlide 240ms ease-out',
   },
-  left: {
-    display: 'grid',
-    placeItems: 'center'
-  },
-  center: {
-    textAlign: 'left',
-    maxWidth: '60vw'
-  },
-  right: {
-    display: 'grid',
-    placeItems: 'center'
-  },
+  left: { display: 'grid', placeItems: 'center' },
+  center: { textAlign: 'left', maxWidth: '60vw' },
+  right: { display: 'grid', placeItems: 'center' },
   gun: {
     width: 48,
     height: 48,
     objectFit: 'contain',
     filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.45))'
   },
-  coinWrap: {
-    position: 'relative'
-  },
+  coinWrap: { position: 'relative' },
   coin: {
     width: 38,
     height: 38,
@@ -100,15 +89,8 @@ const styles = {
     borderRadius: 999,
     border: '1px solid rgba(0,0,0,0.2)'
   },
-  title: {
-    fontSize: 16,
-    fontWeight: 900,
-    letterSpacing: 0.3
-  },
-  subtitle: {
-    fontSize: 13,
-    opacity: 0.95
-  }
+  title: { fontSize: 16, fontWeight: 900, letterSpacing: 0.3 },
+  subtitle: { fontSize: 13, opacity: 0.95 }
 };
 
 // Inject CSS keyframes once

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAppContext } from './context/AppContext.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
-import ChatTicker from './components/ChatTicker.jsx';
+// Safe import pattern in case ChatTicker is a named export
+import ChatTickerDefault, * as ChatTickerModule from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
 import WinnerOverlay from './components/WinnerOverlay.jsx';
@@ -11,6 +12,8 @@ import HypeMeter from './components/HypeMeter.jsx';
 import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
 import ParticleField from './components/FX/ParticleField.jsx';
+
+const ChatTicker = ChatTickerDefault || ChatTickerModule.ChatTicker || null;
 
 export default function App() {
   const ctx = useAppContext();
@@ -61,8 +64,8 @@ export default function App() {
     }
   }, [tryStartBattle]);
 
-  const openSearch = () => setModalOpen(true);
-  const closeSearch = () => setModalOpen(false);
+  const openSearch = () => typeof setModalOpen === 'function' && setModalOpen(true);
+  const closeSearch = () => typeof setModalOpen === 'function' && setModalOpen(false);
 
   const votesA = battle?.voteTotals?.a || 0;
   const votesB = battle?.voteTotals?.b || 0;
@@ -104,14 +107,16 @@ export default function App() {
   const pulseA = (hypePulse?.a || 0) % 2 === 1;
   const pulseB = (hypePulse?.b || 0) % 2 === 1;
 
-  // Chat auto-scroll
+  // Chat auto-scroll with MutationObserver for reliability
   const chatScrollRef = useRef(null);
   useEffect(() => {
     const el = chatScrollRef.current;
     if (!el) return;
     const scrollToBottom = () => { el.scrollTop = el.scrollHeight; };
-    const id = setInterval(scrollToBottom, 800);
-    return () => clearInterval(id);
+    const observer = new MutationObserver(scrollToBottom);
+    observer.observe(el, { childList: true, subtree: true });
+    scrollToBottom();
+    return () => observer.disconnect();
   }, []);
 
   return (
@@ -264,7 +269,7 @@ export default function App() {
             <div className="chat-header">Chat</div>
             <div className="chat-body">
               <div className="chat-scroll" ref={chatScrollRef} style={{ maxHeight: '62vh', overflowY: 'auto' }}>
-                <ChatTicker limit={80} />
+                {ChatTicker ? <ChatTicker limit={80} /> : null}
               </div>
             </div>
             <div className="chat-footer" style={{ fontSize: 14 }}>
