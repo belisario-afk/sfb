@@ -341,7 +341,7 @@ export function AppProvider({ children }) {
         id: msg.userId || '',
         username: msg.username || '',
         name: msg.displayName || msg.username || '',
-        avatar: msg.avatarUrl || ''
+        avatar: msg.avatarUrl || msg.avatar || msg.profilePictureUrl || ''
       };
       const moved = promoteRequesterLatest(requester);
       if (moved) {
@@ -385,11 +385,12 @@ export function AppProvider({ children }) {
     if (!chat?.subscribe) return;
     const handler = async (msg) => {
       // Gift events
-      if (msg?.type === 'gift' || msg?.event === 'gift' || msg?.kind === 'gift' || msg?.data?.event === 'gift') {
+      if (msg?.type === 'gift') {
         handleGiftMessage(msg);
         return;
       }
 
+      // Chat message
       const raw = (msg?.text || '').trim();
       if (!raw) return;
       const lower = raw.toLowerCase();
@@ -417,7 +418,7 @@ export function AppProvider({ children }) {
           id: msg.userId || '',
           username: msg.username || '',
           name: msg.displayName || msg.username || '',
-          avatar: msg.avatarUrl || ''
+          avatar: msg.avatarUrl || msg.avatar || msg.profilePictureUrl || ''
         };
         console.log('[ChatCmd] battle query parsed:', q, 'from', requester.username || requester.name);
         if (q) await addTopTrackByQuery(q, requester);
