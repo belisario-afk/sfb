@@ -46,6 +46,7 @@ export default function useBattleEngine(spotifyClientId) {
     if (!track) return;
     if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
     setQueue(q => {
+      // Deduplicate by spotify track id or uri if present
       const exists = q.some(t => (t.id && track.id && t.id === track.id) || (t.uri && track.uri && t.uri === track.uri));
       if (exists) return q;
       return [...q, track];
@@ -81,6 +82,7 @@ export default function useBattleEngine(spotifyClientId) {
       let idx = -1;
       for (let i = q.length - 1; i >= 0; i--) {
         const rb = q[i]?._requestedBy || {};
+        if (!rb) continue;
         const idMatch = userId && rb.id && rb.id === userId;
         const nameMatch = username && (rb.username === username || rb.name === username);
         if (idMatch || nameMatch) { idx = i; break; }
@@ -125,6 +127,7 @@ export default function useBattleEngine(spotifyClientId) {
   }, []);
 
   const tryStartBattle = useCallback(() => {
+    // Only start if no running battle and at least two in queue
     if (currentBattle && currentBattle.stage !== 'finished') {
       console.warn(LOG, 'Battle in progress.');
       return;
@@ -146,7 +149,9 @@ export default function useBattleEngine(spotifyClientId) {
     if (choice !== 'a' && choice !== 'b') return;
     setCurrentBattle(prev => {
       if (!prev) return prev;
-      if (!VOTE_STAGES.has(prev.stage)) return prev;
+      if (!VOTE_STAGES.has(prev.stage)) {
+        return prev;
+      }
       const windowIndex = prev.stage === 'vote1' ? 0 : 1;
 
       if (VOTING_RULE === 'SINGLE_PER_BATTLE') {
@@ -169,7 +174,7 @@ export default function useBattleEngine(spotifyClientId) {
       else newWindows[windowIndex].b.add(userId);
 
       const totalA = newWindows[0].a.size + newWindows[1].a.size;
-      const totalB = newWindows[0].b.size + newWindows[1].b.size; // FIXED
+      const totalB = newWindows[0].b.size + newWindows[1].b.size;
 
       return {
         ...prev,
@@ -186,10 +191,8 @@ export default function useBattleEngine(spotifyClientId) {
       const paused = !prev.paused;
       if (paused) {
         clearAllTimers();
-        // Pause everywhere
         if (PLAYBACK_MODE === 'FULL') {
-          try { spotifyPlayer?.pause?.(); } catch {}
-          pauseSpotifyPlayback(); // Web API pause
+          try { spotifyPlayer?.pause(); } catch {}
         } else {
           stopAllPreviews();
         }
@@ -204,27 +207,6 @@ export default function useBattleEngine(spotifyClientId) {
     clearAllTimers();
     advanceStage();
   }, []);
-
-  /* ---------- Helpers: Spotify Web API pause ---------- */
-  function getStoredAccessToken() {
-    try {
-      const raw = localStorage.getItem('spotifyTokens');
-      if (!raw) return null;
-      return JSON.parse(raw).accessToken || null;
-    } catch { return null; }
-  }
-  async function pauseSpotifyPlayback() {
-    const token = getStoredAccessToken();
-    if (!token) return;
-    try {
-      await fetch('https://api.spotify.com/v1/me/player/pause', {
-        method: 'PUT',
-        headers: { Authorization: 'Bearer ' + token }
-      });
-    } catch (e) {
-      console.warn(LOG, 'Pause API error', e);
-    }
-  }
 
   /* ---------- Stage Handling with Version Guard ---------- */
   function advanceStage() {
@@ -255,15 +237,10 @@ export default function useBattleEngine(spotifyClientId) {
   }
 
   function scheduleStage(nextStage, _isResume = false) {
+    // bump stage version and clear timers to invalidate older callbacks
     stageVersionRef.current += 1;
     const thisVersion = stageVersionRef.current;
     clearPlaybackTimers();
-
-    // Stop any preview before starting a new segment to prevent overlap/repeats
-    if (PLAYBACK_MODE !== 'FULL') {
-      stopAllPreviews();
-    }
-
     setCurrentBattle(prev => {
       const b = prev;
       if (!b) return prev;
@@ -288,7 +265,6 @@ export default function useBattleEngine(spotifyClientId) {
       if (nextStage === 'winner') {
         if (PLAYBACK_MODE === 'FULL') {
           try { spotifyPlayer?.pause?.(); } catch {}
-          pauseSpotifyPlayback();
         } else {
           stopAllPreviews();
         }
@@ -369,7 +345,6 @@ export default function useBattleEngine(spotifyClientId) {
   function enterVoteStage(battle, stage, version) {
     if (PLAYBACK_MODE === 'FULL') {
       try { spotifyPlayer?.pause?.(); } catch {}
-      pauseSpotifyPlayback();
     } else {
       stopAllPreviews();
     }
@@ -411,8 +386,6 @@ export default function useBattleEngine(spotifyClientId) {
     if (PLAYBACK_MODE === 'FULL') {
       playSpotifySegment(track, segment.offsetMs);
     } else {
-      // Ensure any previous preview is stopped before starting a new one
-      stopAllPreviews();
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
     scheduleSegmentEnd(segment.durationMs, version);
@@ -420,8 +393,8 @@ export default function useBattleEngine(spotifyClientId) {
 
   function resolveSegment(stage) {
     switch (stage) {
-      case 'r1A_play': return { side: 'a', offsetMs: 0,                 durationMs: ROUND1_SEGMENT_MS };
-      case 'r1B_play': return { side: 'b', offsetMs: 0,                 durationMs: ROUND1_SEGMENT_MS };
+      case 'r1A_play': return { side: 'a', offsetMs: 0, durationMs: ROUND1_SEGMENT_MS };
+      case 'r1B_play': return { side: 'b', offsetMs: 0, durationMs: ROUND1_SEGMENT_MS };
       case 'r2A_play': return { side: 'a', offsetMs: ROUND1_SEGMENT_MS, durationMs: ROUND2_SEGMENT_MS };
       case 'r2B_play': return { side: 'b', offsetMs: ROUND1_SEGMENT_MS, durationMs: ROUND2_SEGMENT_MS };
       default: return null;
@@ -471,9 +444,8 @@ export default function useBattleEngine(spotifyClientId) {
     try {
       const res = await doPlay();
       if (!res.ok) {
-        // Handle 404/403 by trying a transfer once
         if ((res.status === 404 || res.status === 403) && deviceId) {
-          const retryKey = (track.id || track.uri) + ':' + offsetMs;
+          const retryKey = track.id + ':' + offsetMs;
           if (playbackRetryRef.current.key !== retryKey) {
             playbackRetryRef.current.key = retryKey;
             console.warn(LOG, 'Playback 404/403, attempting device transfer & retry...');
@@ -553,6 +525,6 @@ export default function useBattleEngine(spotifyClientId) {
     spotifyPlayer,
     setSpotifyPlayer,
     voteRemaining,
-    promoteRequesterLatest // exposed for mega gifts
+    promoteRequesterLatest // <-- exposed for mega gifts
   };
 }

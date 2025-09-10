@@ -1,4 +1,4 @@
-// Playback configuration for strict 20s segments and 20s vote windows.
+// Updated playback configuration to support strict 20s segments and 20s vote windows.
 
 export const PLAYBACK_MODE = (import.meta.env.VITE_PLAYBACK_MODE || 'FULL').toUpperCase();
 
@@ -19,13 +19,16 @@ export const VICTORY_MIN_PLAY_MS = 5_000; // if song is shorter than offset, sti
 export const TRANSITION_BUFFER = 180;   // ms early scheduling for playback transitions
 export const STAGE_GAP_MS = 120;        // small gap between segments
 
-// Delay before auto-starting the next battle AFTER the victory play has completed
+// Delay before auto-starting the next battle AFTER the winner/victory play has completed
 export const BATTLE_AUTOSTART_NEXT_DELAY = 3000;
 
 // Voting behavior
 // 'PER_WINDOW' => user can vote once in vote1 and once in vote2 (max 2 votes)
 // 'SINGLE_PER_BATTLE' => user can only vote once across the entire battle
 export const VOTING_RULE = 'SINGLE_PER_BATTLE';
+
+// Allow a small pause concept if needed (not used during vote windows which already pause)
+export const ENFORCE_SEGMENT_PAUSE = true;
 
 export function isFullPlayback() {
   return PLAYBACK_MODE === 'FULL';

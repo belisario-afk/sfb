@@ -2,10 +2,11 @@ import React, { useMemo } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 
 /**
- * WinnerFocus: celebratory focus during 'victory_play'
- * - Album art
- * - Requester avatar (robust fallbacks)
- * - Title/artist info
+ * WinnerFocus: Big celebratory focus during 'victory_play'
+ * - Large album art
+ * - Requester avatar with crown
+ * - Pulsing glow ring + animated equalizer bars
+ * - Soft confetti shimmer background
  */
 export default function WinnerFocus() {
   const { battle } = useAppContext() || {};
@@ -23,20 +24,27 @@ export default function WinnerFocus() {
     winTrack?.album?.images?.[2]?.url ||
     '';
 
-  const rb = winTrack?._requestedBy || {};
-  const requester = rb.name || rb.username || '';
+  const requester =
+    winTrack?._requestedBy?.name ||
+    winTrack?._requestedBy?.username ||
+    '';
+
   const avatar =
-    rb.avatar ||
-    rb.avatarUrl ||
-    rb.profilePictureUrl ||
-    rb.image ||
+    winTrack?._requestedBy?.avatar ||
+    winTrack?._requestedBy?.image ||
     '';
 
   const sideColor = winSide === 'a' ? '#00E7FF' : '#FF2D95';
+  const sideGrad =
+    winSide === 'a'
+      ? 'linear-gradient(135deg, #00E7FF 0%, #00FFA3 100%)'
+      : 'linear-gradient(135deg, #FF2D95 0%, #A100FF 100%)';
 
   return (
     <div style={styles.container}>
-      <div style={{ ...styles.card, boxShadow: `0 10px 44px ${sideColor}40` }}>
+      {/* shimmer confetti background */}
+      <div style={styles.confettiLayer} />
+      <div style={{ ...styles.card, borderImage: sideGrad + ' 1' }}>
         <div style={{ ...styles.ring, boxShadow: `0 0 40px ${sideColor}80` }}>
           {art && <img src={art} alt="" style={styles.art} />}
           <div style={{ ...styles.ringPulse, borderColor: sideColor }} />
@@ -46,21 +54,36 @@ export default function WinnerFocus() {
           <div style={styles.title} title={winTrack?.name}>{winTrack?.name}</div>
           <div style={styles.artists}>{(winTrack?.artists || []).map(a => a.name).join(', ')}</div>
 
-          {(requester || avatar) && (
-            <div style={styles.requesterRow}>
-              {avatar ? (
-                <div style={{ ...styles.avatarWrap, boxShadow: `0 0 16px ${sideColor}80` }}>
-                  <img src={avatar} alt="" style={styles.avatarImg} />
-                  <div style={styles.crown}>👑</div>
-                </div>
-              ) : (
-                <div style={styles.crownOnly}>👑</div>
-              )}
-              {requester && <div style={styles.requesterName}>Requested by {requester}</div>}
-            </div>
-          )}
+          <div style={styles.requesterRow}>
+            {avatar ? (
+              <div style={{ ...styles.avatarWrap, boxShadow: `0 0 16px ${sideColor}80` }}>
+                <img src={avatar} alt="" style={styles.avatarImg} />
+                <div style={styles.crown}>👑</div>
+              </div>
+            ) : (
+              <div style={styles.crownOnly}>👑</div>
+            )}
+            {requester && <div style={styles.requesterName}>Requested by {requester}</div>}
+          </div>
         </div>
+
+        <Bars color={sideColor} />
       </div>
+    </div>
+  );
+}
+
+function Bars({ color = '#00E7FF' }) {
+  return (
+    <div style={styles.barsWrap}>
+      {Array.from({ length: 24 }).map((_, i) => (
+        <div key={i} style={{
+          ...styles.bar,
+          background: color,
+          animationDelay: (i * 40) + 'ms',
+          height: 10 + (i % 5) * 4
+        }} />
+      ))}
     </div>
   );
 }
@@ -75,6 +98,12 @@ const styles = {
     pointerEvents: 'none',
     zIndex: 14
   },
+  confettiLayer: {
+    position: 'absolute',
+    inset: 0,
+    background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.06), rgba(0,0,0,0) 60%), repeating-linear-gradient(60deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 8px)',
+    filter: 'blur(0.2px)'
+  },
   card: {
     background: 'rgba(0,0,0,0.55)',
     color: '#fff',
@@ -83,7 +112,10 @@ const styles = {
     minWidth: '340px',
     maxWidth: '88vw',
     textAlign: 'center',
-    backdropFilter: 'blur(10px)'
+    boxShadow: '0 10px 44px rgba(0,0,0,0.5)',
+    backdropFilter: 'blur(10px)',
+    border: '2px solid transparent',
+    animation: 'focusPop 420ms ease-out'
   },
   ring: {
     position: 'relative',
@@ -157,6 +189,20 @@ const styles = {
   requesterName: {
     fontSize: 13,
     opacity: 0.95
+  },
+  barsWrap: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+    height: 50,
+    marginTop: 2
+  },
+  bar: {
+    width: 7,
+    borderRadius: 3,
+    opacity: 0.95,
+    animation: 'barDance 640ms ease-in-out infinite alternate'
   }
 };
 
@@ -166,6 +212,15 @@ if (typeof document !== 'undefined' && !document.getElementById(styleElId)) {
   const el = document.createElement('style');
   el.id = styleElId;
   el.textContent = `
+@keyframes focusPop {
+  0% { transform: scale(0.94); opacity: 0; }
+  60% { transform: scale(1.02); opacity: 1; }
+  100% { transform: scale(1.0); opacity: 1; }
+}
+@keyframes barDance {
+  0% { transform: scaleY(0.6); }
+  100% { transform: scaleY(1.9); }
+}
 @keyframes pulse {
   0% { transform: scale(0.95); opacity: 0.6; }
   70% { transform: scale(1.08); opacity: 0.1; }

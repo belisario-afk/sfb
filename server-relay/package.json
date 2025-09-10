@@ -9,9 +9,6 @@
     "dev": "NODE_ENV=development node index.js",
     "postinstall": "node scripts/patch-tiktok-connector.js || true"
   },
-  "engines": {
-    "node": ">=18"
-  },
   "dependencies": {
     "dotenv": "^16.4.5",
     "tiktok-live-connector": "2.0.7-beta1",

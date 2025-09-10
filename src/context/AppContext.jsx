@@ -149,8 +149,7 @@ export function AppProvider({ children }) {
     forceNextStage,
     togglePause,
     setSpotifyPlayer: setEngineSpotifyPlayer,
-    voteRemaining,
-    promoteRequesterLatest
+    voteRemaining
   } = battleEngine;
 
   useEffect(() => {
@@ -164,7 +163,6 @@ export function AppProvider({ children }) {
 
   const normalizeRelay = useCallback((val) => {
     let v = (val || '').trim();
-    // Normalize to ws endpoint automatically
     if (v && !v.endsWith('/ws')) {
       if (!v.endsWith('/')) v += '/';
       v += 'ws';
@@ -262,9 +260,6 @@ export function AppProvider({ children }) {
   const battleRef = useRef(null);
   useEffect(() => { battleRef.current = battle; }, [battle]);
 
-  // Gift banner state for big promotions
-  const [giftBanner, setGiftBanner] = useState(null); // { username, amount, ts }
-
   // Reset hype and per-battle votes tracking when a new battle starts
   useEffect(() => {
     if (!battle) return;
@@ -290,6 +285,7 @@ export function AppProvider({ children }) {
   }
 
   function getGiftCoins(msg) {
+    // Support multiple payload shapes
     if (!msg) return 0;
     const data = msg.data || {};
     return Number(
@@ -302,15 +298,11 @@ export function AppProvider({ children }) {
     ) || 0;
   }
 
-  function getGiftName(msg) {
-    const data = msg?.data || {};
-    return (msg?.giftName || data.giftName || data.gift_name || '').toString();
-  }
-
   function isGiftRepeatEnd(msg) {
     const data = msg?.data || {};
     const v = (msg?.repeatEnd ?? data.repeatEnd);
     if (typeof v === 'boolean') return v;
+    // Default true to avoid missing gifts on some relays
     return true;
   }
 
@@ -328,56 +320,31 @@ export function AppProvider({ children }) {
     if (!coins) return;
     if (!isGiftRepeatEnd(msg)) return;
 
-    const giftName = getGiftName(msg).toLowerCase();
-
-    // Mega rule: Money Gun OR coins >= 500 -> promote requester's song to front
-    const isMoneyGun = giftName.includes('money gun') || giftName.includes('moneygun');
-    const isMega = coins >= 500 || isMoneyGun;
-
+    // Small [1,19], Medium [20,99] affect hype/effects
     const isMedium = coins >= 20 && coins <= 99;
     const isSmall = coins > 0 && coins < 20;
+    if (!isSmall && !isMedium) return;
 
-    if (isMega) {
-      const requester = {
-        id: msg.userId || '',
-        username: msg.username || '',
-        name: msg.displayName || msg.username || '',
-        avatar: msg.avatarUrl || msg.avatar || msg.profilePictureUrl || ''
-      };
-      const moved = promoteRequesterLatest(requester);
-      if (moved) {
-        setGiftBanner({
-          username: requester.name || requester.username || 'Viewer',
-          amount: coins,
-          ts: Date.now()
-        });
-        setTimeout(() => setGiftBanner(null), 5000);
-        console.log('[Gift][PROMOTE]', coins, 'coins by', requester.username || requester.name);
-      } else {
-        console.log('[Gift][PROMOTE] No queued request to promote for', requester.username || requester.name);
+    let side = resolveGiftSideFromVote(msg);
+    if (!side) {
+      // Attribute to current leader during voting windows to ensure gifts have visible effect
+      const b = battleRef.current;
+      const inVoting = b?.stage?.startsWith?.('vote');
+      if (inVoting) {
+        side = resolveLeaderSide();
       }
-      return;
     }
 
-    if (isSmall || isMedium) {
-      let side = resolveGiftSideFromVote(msg);
-      if (!side) {
-        const b = battleRef.current;
-        const inVoting = b?.stage?.startsWith?.('vote');
-        if (inVoting) {
-          side = resolveLeaderSide();
-        }
-      }
-      if (side) {
-        addHype(side, isMedium ? 2 : 1);
-      } else {
-        setHypePulse(prev => ({ a: prev.a + 1, b: prev.b + 1 }));
-      }
-      console.log('[Gift]', coins, 'coins ->', side || 'neutral', '(small/medium)');
+    if (side) {
+      addHype(side, isMedium ? 2 : 1);
+    } else {
+      // Unknown side (no leader or outside battle): pulse both lightly
+      setHypePulse(prev => ({ a: prev.a + 1, b: prev.b + 1 }));
     }
+    console.log('[Gift]', coins, 'coins ->', side || 'neutral', '(small/medium)');
   }
 
-  /* ---------- Chat commands from Relay ---------- */
+  /* ---------- Chat commands from TikTok relay ---------- */
   const recentAddsRef = useRef(new Map()); // trackId -> ts
   const PER_USER_BATTLE_COOLDOWN_MS = 5000;
   const lastBattleCmdAt = useRef(new Map()); // userId -> ts
@@ -386,12 +353,11 @@ export function AppProvider({ children }) {
     if (!chat?.subscribe) return;
     const handler = async (msg) => {
       // Gift events
-      if (msg?.type === 'gift') {
+      if (msg?.type === 'gift' || msg?.event === 'gift' || msg?.kind === 'gift' || msg?.data?.event === 'gift') {
         handleGiftMessage(msg);
         return;
       }
 
-      // Chat message
       const raw = (msg?.text || '').trim();
       if (!raw) return;
       const lower = raw.toLowerCase();
@@ -419,7 +385,7 @@ export function AppProvider({ children }) {
           id: msg.userId || '',
           username: msg.username || '',
           name: msg.displayName || msg.username || '',
-          avatar: msg.avatarUrl || msg.avatar || msg.profilePictureUrl || ''
+          avatar: msg.avatarUrl || ''
         };
         console.log('[ChatCmd] battle query parsed:', q, 'from', requester.username || requester.name);
         if (q) await addTopTrackByQuery(q, requester);
@@ -548,9 +514,6 @@ export function AppProvider({ children }) {
     // Hype
     hype,
     hypePulse,
-
-    // Gift Banner
-    giftBanner,
 
     // UI / modal
     modalOpen,
