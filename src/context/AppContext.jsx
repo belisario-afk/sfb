@@ -279,62 +279,36 @@ export function AppProvider({ children }) {
   function resolveGiftSideFromVote(msg) {
     const uid = msg?.userId || msg?.username || msg?.displayName;
     if (!uid) return null;
-    return votesByUserRef.current.get(uid) || null;
+    const side = votesByUserRef.current.get(uid);
+    return side || null;
+    // Note: You can enhance to inspect msg.extra like "!vote a" tie-in if your relay provides it.
   }
-
-  function getGiftCoins(msg) {
-    // Support multiple payload shapes
-    if (!msg) return 0;
-    const data = msg.data || {};
-    return Number(
-      msg.value ??
-      msg.coins ??
-      msg.diamondCount ??
-      data.diamondCount ??
-      data.diamond_count ??
-      0
-    ) || 0;
-  }
-
-  function isGiftRepeatEnd(msg) {
-    const data = msg?.data || {};
-    const v = (msg?.repeatEnd ?? data.repeatEnd);
-    if (typeof v === 'boolean') return v;
-    // Default true to avoid missing gifts on some relays
-    return true;
-    }
 
   function handleGiftMessage(msg) {
-    const coins = getGiftCoins(msg);
+    // Expecting shape: { type:'gift', value: <coins>, userId, username, displayName, avatarUrl, repeatEnd? }
+    const coins = Number(msg?.value || msg?.coins || msg?.diamondCount || 0);
     if (!coins) return;
-    if (!isGiftRepeatEnd(msg)) return;
-
-    // Small [1,19], Medium [20,99] only affect hype/effects per request
+    if (msg?.repeatEnd === false) return; // process only at repeat end to avoid spam
+    const side = resolveGiftSideFromVote(msg); // only add hype if sender voted
     const isMedium = coins >= 20 && coins <= 99;
     const isSmall = coins > 0 && coins < 20;
-    if (!isSmall && !isMedium) return;
+    if (!isSmall && !isMedium) return; // per your instruction: small/medium only in this update
 
-    const side = resolveGiftSideFromVote(msg);
+    // Pulse UI (scoreboard and hype meter) on whichever side we can attribute
     if (side) {
       addHype(side, isMedium ? 2 : 1);
     } else {
-      // Unknown side: pulse both lightly so the viewer sees reaction
+      // No vote known: show neutral pulse by toggling both lightly (no hype added)
       setHypePulse(prev => ({ a: prev.a + 1, b: prev.b + 1 }));
     }
-    // Debug log to verify gifts are being processed
-    console.log('[Gift]', coins, 'coins ->', side || 'neutral', '(small/medium)');
   }
 
   /* ---------- Chat commands from TikTok relay ---------- */
-  const recentAddsRef = useRef(new Map()); // trackId -> ts
-  const PER_USER_BATTLE_COOLDOWN_MS = 5000;
-  const lastBattleCmdAt = useRef(new Map()); // userId -> ts
-
   useEffect(() => {
     if (!chat?.subscribe) return;
     const handler = async (msg) => {
       // Gift events
-      if (msg?.type === 'gift' || msg?.event === 'gift' || msg?.kind === 'gift') {
+      if (msg?.type === 'gift') {
         handleGiftMessage(msg);
         return;
       }
@@ -348,24 +322,12 @@ export function AppProvider({ children }) {
         if (side === 'a' || side === 'b') {
           const voterId = msg.userId || msg.username || msg.displayName || 'anon';
           // Record mapping for hype attribution
-          if (!votesByUserRef.current.has(voterId)) {
-            votesByUserRef.current.set(voterId, side);
-            vote(side, voterId);
-            console.log('[ChatCmd] vote', side, 'from', voterId);
-          } else {
-            // already voted; ignore to reduce log noise
-          }
+          votesByUserRef.current.set(voterId, side);
+          vote(side, voterId);
+          console.log('[ChatCmd] vote', side, 'from', voterId);
         }
         return;
       } else if (lower.startsWith('!battle ')) {
-        const requesterId = msg.userId || msg.username || msg.displayName || '';
-        const now = Date.now();
-        const last = lastBattleCmdAt.current.get(requesterId) || 0;
-        if (now - last < PER_USER_BATTLE_COOLDOWN_MS) {
-          return; // rate limit
-        }
-        lastBattleCmdAt.current.set(requesterId, now);
-
         const q = extractBattleQuery(raw);
         const requester = {
           id: msg.userId || '',
@@ -390,26 +352,10 @@ export function AppProvider({ children }) {
       try {
         const top = await searchTopTrackByQuery(authState.accessToken, query);
         if (top) {
-          const trackId = top.id || top.uri || '';
-          const now = Date.now();
-          // dedupe recent adds (8s window)
-          const lastTs = recentAddsRef.current.get(trackId) || 0;
-          if (now - lastTs < 8000) {
-            return;
-          }
-          recentAddsRef.current.set(trackId, now);
-
           const enriched = {
             ...top,
             _requestedBy: requester || null
           };
-
-          // Avoid duplicates already in queue
-          const inQueue = (battleEngine.queue || []).some(t => (t.id && t.id === enriched.id) || (t.uri && t.uri === enriched.uri));
-          if (inQueue) {
-            return;
-          }
-
           addTrack(enriched);
           console.log('[AddTrack] Added:', enriched.name, '—', (enriched.artists || []).map(a => a.name).join(', '));
         } else {
@@ -419,19 +365,16 @@ export function AppProvider({ children }) {
         console.warn('[AddTrack] Search failed for:', query, e?.message || e);
       }
     },
-    [authState, addTrack, battleEngine.queue]
+    [authState, addTrack]
   );
 
   const addTrackById = useCallback(
     async (id, requester) => {
       if (!authState?.accessToken) return;
       const t = await getTrackById(authState.accessToken, id);
-      if (!t) return;
-      const inQueue = (battleEngine.queue || []).some(x => (x.id && x.id === t.id) || (x.uri && x.uri === t.uri));
-      if (inQueue) return;
-      addTrack({ ...t, _requestedBy: requester || null });
+      if (t) addTrack({ ...t, _requestedBy: requester || null });
     },
-    [authState, addTrack, battleEngine.queue]
+    [authState, addTrack]
   );
 
   const addDemoPair = useCallback(() => {

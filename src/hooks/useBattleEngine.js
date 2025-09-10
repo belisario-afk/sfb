@@ -35,35 +35,24 @@ export default function useBattleEngine(spotifyClientId) {
     victoryTimer: null,
     nextTimer: null
   });
-  const stageVersionRef = useRef(0); // guards against stale timers
+  const pendingStageRef = useRef(null);
   const playbackRetryRef = useRef({ key: null }); // track -> single retry guard
 
   /* ---------- Queue Management ---------- */
   const addTrack = useCallback((track) => {
     if (!track) return;
     if (!track.uri && track.id) track.uri = 'spotify:track:' + track.id;
-    setQueue(q => {
-      // Deduplicate by spotify track id if present
-      const exists = q.some(t => (t.id && track.id && t.id === track.id) || (t.uri && track.uri && t.uri === track.uri));
-      if (exists) return q;
-      return [...q, track];
-    });
+    setQueue(q => [...q, track]);
   }, []);
 
   const addTrackList = useCallback((tracks) => {
-    setQueue(q => {
-      const setIds = new Set(q.map(t => t.id || t.uri || ''));
-      const add = [];
-      for (const t of tracks) {
-        const id = t.id || (t.uri || '');
-        if (!setIds.has(id)) {
-          if (!t.uri && t.id) t.uri = 'spotify:track:' + t.id;
-          setIds.add(id);
-          add.push(t);
-        }
-      }
-      return [...q, ...add];
-    });
+    setQueue(q => [
+      ...q,
+      ...tracks.map(t => {
+        if (!t.uri && t.id) t.uri = 'spotify:track:' + t.id;
+        return t;
+      })
+    ]);
   }, []);
 
   /* ---------- Battle Initialization ---------- */
@@ -111,6 +100,7 @@ export default function useBattleEngine(spotifyClientId) {
     setCurrentBattle(prev => {
       if (!prev) return prev;
       if (!VOTE_STAGES.has(prev.stage)) {
+        // Ignore votes outside the voting windows
         return prev;
       }
       const windowIndex = prev.stage === 'vote1' ? 0 : 1;
@@ -169,7 +159,7 @@ export default function useBattleEngine(spotifyClientId) {
     advanceStage();
   }, []);
 
-  /* ---------- Stage Handling with Version Guard ---------- */
+  /* ---------- Stage Handling (no stale snapshots) ---------- */
   function advanceStage() {
     setCurrentBattle(prev => {
       if (!prev) return prev;
@@ -198,9 +188,6 @@ export default function useBattleEngine(spotifyClientId) {
   }
 
   function scheduleStage(nextStage, _isResume = false) {
-    // bump stage version and clear timers to invalidate older callbacks
-    stageVersionRef.current += 1;
-    const thisVersion = stageVersionRef.current;
     clearPlaybackTimers();
     setCurrentBattle(prev => {
       const b = prev;
@@ -208,20 +195,19 @@ export default function useBattleEngine(spotifyClientId) {
       let updated = { ...b, stage: nextStage, stageStartedAt: Date.now() };
 
       if (nextStage === 'finished') {
+        // Victory already played. Cleanup and schedule next battle.
         console.log(LOG, 'Battle finished', updated.voteTotals, 'Winner:', updated.winner);
         setVoteRemaining(0);
         if (BATTLE_AUTOSTART_NEXT_DELAY > 0) {
           timersRef.current.nextTimer = setTimeout(() => {
-            // only proceed if no newer stage overtook
-            if (thisVersion === stageVersionRef.current) {
-              tryStartBattle();
-            }
+            tryStartBattle();
           }, BATTLE_AUTOSTART_NEXT_DELAY);
         }
         return updated;
       }
 
       if (nextStage === 'winner') {
+        // Pause playback and compute final totals/winner from latest state
         if (PLAYBACK_MODE === 'FULL') {
           try { spotifyPlayer?.pause?.(); } catch {}
         } else {
@@ -241,30 +227,32 @@ export default function useBattleEngine(spotifyClientId) {
         };
         setVoteRemaining(0);
 
-        if (timersRef.current.winnerTimer) clearTimeout(timersRef.current.winnerTimer);
+        if (timersRef.current.winnerTimer) {
+          clearTimeout(timersRef.current.winnerTimer);
+          timersRef.current.winnerTimer = null;
+        }
         timersRef.current.winnerTimer = setTimeout(() => {
-          if (thisVersion === stageVersionRef.current) {
-            advanceStage(); // -> victory_play
-          }
+          advanceStage(); // go to 'victory_play'
         }, WINNER_ANIMATION_MS);
 
         return updated;
       }
 
       if (nextStage === 'victory_play') {
+        // If tie, skip victory play
         if (!b.winner) {
-          // No winner: skip victory play
-          setTimeout(() => {
-            if (thisVersion === stageVersionRef.current) advanceStage();
-          }, 50);
+          // Directly finish if no winner
+          setTimeout(() => advanceStage(), 50);
           return { ...b, stage: 'victory_play', stageStartedAt: Date.now() };
         }
 
         const side = b.winner; // 'a' or 'b'
         const track = b[side];
+        // Determine remaining duration from offset
         const durationTotal = Number(track?.duration_ms) || 180_000;
         let offsetMs = VICTORY_PLAY_OFFSET_MS;
         if (offsetMs >= durationTotal) {
+          // If song shorter than 40s, start at 0 but still ensure a min play
           offsetMs = Math.max(0, durationTotal - VICTORY_MIN_PLAY_MS);
         }
         const remainingMs = Math.max(VICTORY_MIN_PLAY_MS, durationTotal - offsetMs);
@@ -272,26 +260,25 @@ export default function useBattleEngine(spotifyClientId) {
         if (PLAYBACK_MODE === 'FULL') {
           playSpotifySegment(track, offsetMs);
         } else {
+          // Previews are 30s; 40s offset doesn't apply.
+          // As a fallback, play 10s of the preview if available.
           const seconds = Math.min(10, Math.max(5, remainingMs / 1000));
           if (track?.preview_url) {
             playPreview('VICTORY', track.preview_url, seconds);
           }
         }
 
-        if (timersRef.current.victoryTimer) clearTimeout(timersRef.current.victoryTimer);
         timersRef.current.victoryTimer = setTimeout(() => {
-          if (thisVersion === stageVersionRef.current) {
-            advanceStage(); // -> finished
-          }
+          advanceStage(); // go to 'finished'
         }, remainingMs);
 
         return updated;
       }
 
       if (VOTE_STAGES.has(nextStage)) {
-        updated = enterVoteStage(updated, nextStage, thisVersion);
+        updated = enterVoteStage(updated, nextStage);
       } else {
-        startPlaybackStage(nextStage, updated, thisVersion);
+        startPlaybackStage(nextStage, updated);
       }
 
       return updated;
@@ -304,7 +291,7 @@ export default function useBattleEngine(spotifyClientId) {
     return a > b ? 'a' : 'b';
   }
 
-  function enterVoteStage(battle, stage, version) {
+  function enterVoteStage(battle, stage) {
     if (PLAYBACK_MODE === 'FULL') {
       try { spotifyPlayer?.pause?.(); } catch {}
     } else {
@@ -320,16 +307,12 @@ export default function useBattleEngine(spotifyClientId) {
       timersRef.current.voteInterval = null;
     }
     timersRef.current.voteInterval = setInterval(() => {
-      // ignore if stage already changed
-      if (version !== stageVersionRef.current) return;
       const remaining = voteEndsAt - Date.now();
       if (remaining <= 0) {
         setVoteRemaining(0);
         clearInterval(timersRef.current.voteInterval);
         timersRef.current.voteInterval = null;
-        setTimeout(() => {
-          if (version === stageVersionRef.current) advanceStage();
-        }, 120);
+        setTimeout(() => advanceStage(), 120);
       } else {
         playTick();
         setVoteRemaining(remaining);
@@ -339,7 +322,7 @@ export default function useBattleEngine(spotifyClientId) {
     return updated;
   }
 
-  function startPlaybackStage(stage, battle, version) {
+  function startPlaybackStage(stage, battle) {
     const segment = resolveSegment(stage);
     if (!segment) return;
     const track = battle[segment.side];
@@ -351,7 +334,7 @@ export default function useBattleEngine(spotifyClientId) {
     } else {
       playPreviewSegment(track, segment.side, segment.offsetMs, segment.durationMs);
     }
-    scheduleSegmentEnd(segment.durationMs, version);
+    scheduleSegmentEnd(segment);
   }
 
   function resolveSegment(stage) {
@@ -364,22 +347,23 @@ export default function useBattleEngine(spotifyClientId) {
     }
   }
 
-  function scheduleSegmentEnd(durationMs, version) {
-    const target = performance.now() + durationMs;
-    const early = Math.max(0, durationMs - TRANSITION_BUFFER);
-    timersRef.current.main = setTimeout(function spin() {
-      if (version !== stageVersionRef.current) return; // stale
-      if (performance.now() >= target - 5) {
-        if (STAGE_GAP_MS > 0) {
-          setTimeout(() => {
-            if (version === stageVersionRef.current) advanceStage();
-          }, STAGE_GAP_MS);
+  function scheduleSegmentEnd(segment) {
+    const target = performance.now() + segment.durationMs;
+    pendingStageRef.current = { stage: segment, end: target };
+    const early = Math.max(0, segment.durationMs - TRANSITION_BUFFER);
+    timersRef.current.main = setTimeout(() => {
+      const spin = () => {
+        if (performance.now() >= target - 5) {
+          if (STAGE_GAP_MS > 0) {
+            setTimeout(() => advanceStage(), STAGE_GAP_MS);
+          } else {
+            advanceStage();
+          }
         } else {
-          advanceStage();
+          timersRef.current.raf = requestAnimationFrame(spin);
         }
-      } else {
-        timersRef.current.raf = requestAnimationFrame(spin);
-      }
+      };
+      spin();
     }, early);
   }
 

@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useAppContext } from '../context/AppContext.jsx';
 
-// Simple per-side hype meter. Shows A and B bars.
-// - Uses context.hype.{a,b} values
-// - Pulses on gift-triggered updates via context.hypePulse
+/**
+ * Simple per-side hype meter. Shows A and B bars.
+ * - Uses context.hype.{a,b} values
+ * - Pulses on gift-triggered updates via context.hypePulse
+ */
 export default function HypeMeter() {
   const ctx = useAppContext();
   const hypeA = ctx?.hype?.a || 0;
@@ -22,24 +24,20 @@ export default function HypeMeter() {
         <span style={{ opacity: 0.8, fontSize: 12 }}>A: {hypeA} • B: {hypeB}</span>
       </div>
       <div style={styles.barRow}>
-        <div
-          style={{
-            ...styles.bar,
-            ...styles.barA,
-            width: pctA + '%',
-            boxShadow: pulseA ? '0 0 16px rgba(0, 231, 255, 0.8)' : 'none',
-            transition: 'width 250ms ease, box-shadow 300ms ease'
-          }}
-        />
-        <div
-          style={{
-            ...styles.bar,
-            ...styles.barB,
-            width: pctB + '%',
-            boxShadow: pulseB ? '0 0 16px rgba(255, 45, 149, 0.8)' : 'none',
-            transition: 'width 250ms ease, box-shadow 300ms ease'
-          }}
-        />
+        <div style={{
+          ...styles.bar,
+          ...styles.barA,
+          width: pctA + '%',
+          boxShadow: pulseA ? '0 0 16px rgba(0, 231, 255, 0.8)' : 'none',
+          transition: 'width 250ms ease, box-shadow 300ms ease'
+        }} />
+        <div style={{
+          ...styles.bar,
+          ...styles.barB,
+          width: pctB + '%',
+          boxShadow: pulseB ? '0 0 16px rgba(255, 45, 149, 0.8)' : 'none',
+          transition: 'width 250ms ease, box-shadow 300ms ease'
+        }} />
       </div>
     </div>
   );

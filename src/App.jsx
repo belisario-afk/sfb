@@ -5,7 +5,6 @@ import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
 import WinnerOverlay from './components/WinnerOverlay.jsx';
-import WinnerFocus from './components/WinnerFocus.jsx';
 import HypeMeter from './components/HypeMeter.jsx';
 import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
@@ -78,6 +77,7 @@ export default function App() {
     return s || 'Active';
   }, [battle]);
 
+  // Try to read the current left/right tracks to show "Requested by"
   function getBattleTracks(b) {
     if (!b) return { left: null, right: null };
     const candidates = [
@@ -100,6 +100,7 @@ export default function App() {
   const requesterLeft = leftTrack?._requestedBy?.name || leftTrack?._requestedBy?.username || '';
   const requesterRight = rightTrack?._requestedBy?.name || rightTrack?._requestedBy?.username || '';
 
+  // Scoreboard pulse style on gift hype pulses
   const pulseA = (hypePulse?.a || 0) % 2 === 1;
   const pulseB = (hypePulse?.b || 0) % 2 === 1;
 
@@ -110,7 +111,7 @@ export default function App() {
           mode={
             !battle ? 'idle'
             : battle.stage === 'winner' ? 'finale'
-            : battle.stage === 'victory_play' ? 'victory'
+            : battle.stage === 'victory_play' ? 'finale'
             : battle.stage === 'finished' ? 'finale'
             : battle.stage?.startsWith?.('vote') ? 'vote'
             : 'play'
@@ -147,7 +148,6 @@ export default function App() {
             <NeoArena />
             <VoteOverlay />
             <WinnerOverlay />
-            <WinnerFocus />
 
             {/* Requested-by badges overlay */}
             {battle && (requesterLeft || requesterRight) && (battle.stage?.startsWith?.('r') || battle.stage === 'winner') && (
