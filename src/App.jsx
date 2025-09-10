@@ -5,7 +5,6 @@ import ChatTicker from './components/ChatTicker.jsx';
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx';
 import VoteOverlay from './components/VoteOverlay.jsx';
 import WinnerOverlay from './components/WinnerOverlay.jsx';
-import HypeMeter from './components/HypeMeter.jsx';
 import NeoArena from './components/arena/NeoArena.jsx';
 import ThreeBackdrop from './components/FX/ThreeBackdrop.jsx';
 import ParticleField from './components/FX/ParticleField.jsx';
@@ -29,8 +28,7 @@ export default function App() {
     spotifyPlayer,
     addDemoPair,
     visualFxEnabled,
-    reducedMotion,
-    hypePulse
+    reducedMotion
   } = ctx;
 
   useEffect(() => {
@@ -70,14 +68,12 @@ export default function App() {
     const s = battle.stage;
     if (s === 'finished') return 'Finished';
     if (s === 'winner') return 'Winner';
-    if (s === 'victory_play') return 'Victory Play';
     if (s?.startsWith?.('vote')) return 'Voting';
     if (s?.includes?.('r1')) return 'Round 1';
     if (s?.includes?.('r2')) return 'Round 2';
     return s || 'Active';
   }, [battle]);
 
-  // Try to read the current left/right tracks to show "Requested by"
   function getBattleTracks(b) {
     if (!b) return { left: null, right: null };
     const candidates = [
@@ -100,10 +96,6 @@ export default function App() {
   const requesterLeft = leftTrack?._requestedBy?.name || leftTrack?._requestedBy?.username || '';
   const requesterRight = rightTrack?._requestedBy?.name || rightTrack?._requestedBy?.username || '';
 
-  // Scoreboard pulse style on gift hype pulses
-  const pulseA = (hypePulse?.a || 0) % 2 === 1;
-  const pulseB = (hypePulse?.b || 0) % 2 === 1;
-
   return (
     <div className="app-root">
       {visualFxEnabled && !reducedMotion && (
@@ -111,7 +103,6 @@ export default function App() {
           mode={
             !battle ? 'idle'
             : battle.stage === 'winner' ? 'finale'
-            : battle.stage === 'victory_play' ? 'finale'
             : battle.stage === 'finished' ? 'finale'
             : battle.stage?.startsWith?.('vote') ? 'vote'
             : 'play'
@@ -130,7 +121,7 @@ export default function App() {
         <div className="layout-center">
           <div className="toolbar glass-soft toolbar-neo">
             <div className="toolbar-left">
-              <div className="brand">SongSmackdown</div>
+              <div className="brand">NEO ARENA</div>
               <div className="stage-chip">{stageLabel}</div>
             </div>
             <div className="toolbar-actions">
@@ -193,35 +184,22 @@ export default function App() {
               <div className="scoreboard glass-surface">
                 <div className="score left">
                   <span className="label">A</span>
-                  <span
-                    className="value"
-                    style={pulseA ? { textShadow: '0 0 12px rgba(0,231,255,0.9)' } : null}
-                  >
-                    {String(votesA).padStart(2, '0')}
-                  </span>
+                  <span className="value">{String(votesA).padStart(2, '0')}</span>
                 </div>
                 <div className="divider" />
                 <div className="score right">
                   <span className="label">B</span>
-                  <span
-                    className="value"
-                    style={pulseB ? { textShadow: '0 0 12px rgba(255,45,149,0.9)' } : null}
-                  >
-                    {String(votesB).padStart(2, '0')}
-                  </span>
+                  <span className="value">{String(votesB).padStart(2, '0')}</span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Hype meter always visible during an active battle */}
-          {battle && <HypeMeter />}
-
           {battle && (
             <div className="battle-info glass-soft">
               <span className="info-pill"><strong>Stage:</strong> {battle.stage}</span>
               {battle.voteWindow && <span className="info-pill">Vote Window: {battle.voteWindow}/2</span>}
-              {battle.winner && (battle.stage === 'winner' || battle.stage === 'finished' || battle.stage === 'victory_play') && (
+              {battle.winner && (battle.stage === 'winner' || battle.stage === 'finished') && (
                 <span className="info-pill tag-win">
                   Winner: {battle.winner?.toUpperCase()}
                 </span>
